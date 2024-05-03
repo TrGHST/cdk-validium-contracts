@@ -1,84 +1,105 @@
-# zkevm-contracts
+# Polygon CDK Validium Contracts
+### Core Contracts for the Polygon CDK Validium
 
-Smart contract implementation which will be used by the polygon zkevm
+The cdk-validium-contracts repository contains the smart contract implementations designed for use with CDK chains configured with Validium.
 
-[![Main CI](https://github.com/0xPolygonHermez/zkevm-contracts/actions/workflows/main.yml/badge.svg)](https://github.com/0xPolygonHermez/zkevm-contracts/actions/workflows/main.yml)
+## Overview of Validium
 
-## Mainnet Contracts:
+For a full overview of the Polygon CDK Validium, please reference the [CDK documentation](https://wiki.polygon.technology/docs/cdk/).
 
-| Contract Name                | Address                                                                                                               |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| PolygonRollupManager         | [0x5132A183E9F3CB7C848b0AAC5Ae0c4f0491B7aB2](https://etherscan.io/address/0x5132A183E9F3CB7C848b0AAC5Ae0c4f0491B7aB2) |
-| PolygonZkEVMBridgeV2         | [0x2a3DD3EB832aF982ec71669E178424b10Dca2EDe](https://etherscan.io/address/0x2a3DD3EB832aF982ec71669E178424b10Dca2EDe) |
-| PolygonZkEVMGlobalExitRootV2 | [0x580bda1e7A0CFAe92Fa7F6c20A3794F169CE3CFb](https://etherscan.io/address/0x580bda1e7A0CFAe92Fa7F6c20A3794F169CE3CFb) |
-| FflonkVerifier               | [0x4F9A0e7FD2Bf6067db6994CF12E4495Df938E6e9](https://etherscan.io/address/0x4F9A0e7FD2Bf6067db6994CF12E4495Df938E6e9) |
-| PolygonZkEVMDeployer         | [0xCB19eDdE626906eB1EE52357a27F62dd519608C2](https://etherscan.io/address/0xCB19eDdE626906eB1EE52357a27F62dd519608C2) |
-| PolygonZkEVMTimelock         | [0xEf1462451C30Ea7aD8555386226059Fe837CA4EF](https://etherscan.io/address/0xEf1462451C30Ea7aD8555386226059Fe837CA4EF) |
+The CDK Validium solution is made up of several components; start with the [CDK Validium Node](https://github.com/0xPolygon/cdk-validium-node). For quick reference, the complete list of components are outlined below:
 
-## zkEVM Contracts:
+| Component                                                                     | Description                                                          |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| [CDK Validium Node](https://github.com/0xPolygon/cdk-validium-node)           | Node implementation for the CDK networks in Validium mode            |
+| [CDK Validium Contracts](https://github.com/0xPolygon/cdk-validium-contracts) | Smart contract implementation for the CDK networks in Validium mode |
+| [CDK Data Availability](https://github.com/0xPolygon/cdk-data-availability)   | Data availability implementation for the CDK networks          |
+| [Prover / Executor](https://github.com/0xPolygonHermez/zkevm-prover)          | zkEVM engine and prover implementation                               |
+| [Bridge Service](https://github.com/0xPolygonHermez/zkevm-bridge-service)     | Bridge service implementation for CDK networks                       |
+| [Bridge UI](https://github.com/0xPolygonHermez/zkevm-bridge-ui)               | UI for the CDK networks bridge                                       |
 
-| Contract Name        | Address                                                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| PolygonZkEVMBridgeV2 | [0x2a3DD3EB832aF982ec71669E178424b10Dca2EDe](https://zkevm.polygonscan.com/address/0x2a3DD3EB832aF982ec71669E178424b10Dca2EDe) |
-| PolygonZkEVMTimelock | [0xBBa0935Fa93Eb23de7990b47F0D96a8f75766d13](https://zkevm.polygonscan.com/address/0xBBa0935Fa93Eb23de7990b47F0D96a8f75766d13) |
+---
 
-## Requirements
+## Important Note
 
--   node version: 16.x
--   npm version: 7.x
+The private keys and mnemonics included in this repository are intended solely for internal testing. **Do not use them in production environments.**
 
-## Install repo
+## Prerequisites
 
+- Node.js version: 16.x
+- npm version: 7.x
+
+## Repository Structure
+
+- `contracts`: Core contracts
+  - `PolygonZkEVMBridge.sol`: Facilitates asset transfers between chains
+    - `PolygonZkEVMGlobalExitRoot.sol`: Manages the global exit root on L1
+    - `PolygonZkEVMGlobalExitRootL2.sol`: Manages the global exit root on L2
+  - `CDKValidium.sol`: Consensus algorithm for Validium CDK chains
+- `docs`: Specifications and useful resources
+- `test`: Contract test suites
+
+## Activate Github Hook
+
+To activate the GitHub hook, run the following command:
+
+```bash
+git config --local core.hooksPath .githooks/
 ```
+
+## Install
+
+```bash
 npm i
 ```
 
-## Run tests
+## Run Tests
 
-```
+Execute the test suite with:
+
+```bash
 npm run test
 ```
 
-## Deploy on hardhat
+## Linting
 
-```
-npm run deploy:ZkEVM:hardhat
+To check for linting errors, run:
+
+```bash
+npm run lint
 ```
 
-## Build dockers
+To automatically fix linting errors, run:
 
+```bash
+npm run lint:fix
 ```
+
+## Build Docker Image
+
+To build the Docker image, run:
+
+```bash
 npm run docker:contracts
 ```
 
-Or if using new docker-compose version
+This will create a new Docker image named `hermeznetwork/geth-cdk-validium-contracts`, which includes a Geth node with the deployed contracts. The deployment output can be found at `docker/deploymentOutput/deploy_output.json`.
 
-```
-npm run dockerv2:contracts
-```
+To run the Docker container, use:
 
-A new docker `hermeznetwork/geth-zkevm-contracts` will be created
-This docker will contain a geth node with the deployed contracts
-The deployment output can be found in: `docker/deploymentOutput/deploy_output.json`
-To run the docker you can use: `docker run -p 8545:8545 hermeznetwork/geth-zkevm-contracts`
+```bash
+docker run -p 8545:8545 hermeznetwork/geth-cdk-validium-contracts
+```
 
 ## Note
 
-In order to test, the following private keys are being used. These keys are not meant to be used in any production environment:
+For testing purposes, the following private keys are being used. These keys are not intended for production use:
 
--   private key: `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
-    -   address:`0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266`
--   private key: `0xdfd01798f92667dbf91df722434e8fbe96af0211d4d1b82bbbbc8f1def7a814f`
-    -   address:`0xc949254d682d8c9ad5682521675b8f43b102aec4`
+- **Private key**: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+- **Address**: 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+- **Private key**: 0xdfd01798f92667dbf91df722434e8fbe96af0211d4d1b82bbbbc8f1def7a814f
+- **Address**: 0xc949254d682d8c9ad5682521675b8f43b102aec4
 
-# Verify Deployed Smart Contracts
+## License
 
-To verify that the smartcontracts of this repository are the same deployed on mainnet, you could follow the instructions described [document](verifyMainnetDeployment/verifyDeployment.md)
-
-The smartcontract used to verify a proof, it's a generated contract from zkEVM Rom and Pil (constraints). To verify the deployment of this smartcontract you could follow the instructions described in this [document](verifyMainnetDeployment/verifyMainnetProofVerifier.md)
-
-## Activate github hook
-
-```
-git config --local core.hooksPath .githooks/
-```
+The cdk-validium-contracts project is licensed under the [GNU Affero General Public License](LICENSE) free software license.

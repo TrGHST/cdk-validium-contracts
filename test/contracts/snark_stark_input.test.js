@@ -4,13 +4,13 @@ const { ethers, upgrades } = require('hardhat');
 const { contractUtils } = require('@0xpolygonhermez/zkevm-commonjs');
 
 describe('Polygon ZK-EVM snark stark input test', () => {
-    let polygonZkEVMContract;
+    let cdkValidiumContract;
     const genesisRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
     let randomSigner;
 
-    const urlSequencer = 'http://zkevm-json-rpc:8123';
+    const urlSequencer = 'http://cdk-validium-json-rpc:8123';
     const chainID = 1000;
-    const networkName = 'zkevm';
+    const networkName = 'cdk-validium';
     const version = '0.0.1';
     const forkID = 0;
     const batchL2Data = '0xee80843b9aca00830186a0944d5cf5032b2a844602278b01199ed191a86c93ff88016345785d8a0000808203e880801cee7e01dc62f69a12c3510c6d64de04ee6346d84b6a017f3e786c7d87f963e75d8cc91fa983cd6d9cf55fff80d73bd26cd333b0f098acc1e58edb1fd484ad731b';
@@ -19,11 +19,12 @@ describe('Polygon ZK-EVM snark stark input test', () => {
         // load signers
         [randomSigner] = await ethers.getSigners();
 
-        // deploy PolygonZkEVMMock
-        const PolygonZkEVMFactory = await ethers.getContractFactory('PolygonZkEVMMock');
-        polygonZkEVMContract = await upgrades.deployProxy(PolygonZkEVMFactory, [], {
+        // deploy CDKValidiumMock
+        const CDKValidiumFactory = await ethers.getContractFactory('CDKValidiumMock');
+        cdkValidiumContract = await upgrades.deployProxy(CDKValidiumFactory, [], {
             initializer: false,
             constructorArgs: [
+                randomSigner.address,
                 randomSigner.address,
                 randomSigner.address,
                 randomSigner.address,
@@ -34,13 +35,15 @@ describe('Polygon ZK-EVM snark stark input test', () => {
             unsafeAllow: ['constructor', 'state-variable-immutable'],
         });
 
-        await polygonZkEVMContract.initialize(
+        await cdkValidiumContract.initialize(
             {
                 admin: randomSigner.address,
                 trustedSequencer: randomSigner.address,
                 pendingStateTimeout: 0,
                 trustedAggregator: randomSigner.address,
                 trustedAggregatorTimeout: 0,
+                requiredAmountOfMembers: 0,
+                requiredAmountOfSignatures: 0,
             },
             genesisRoot,
             urlSequencer,
@@ -48,7 +51,7 @@ describe('Polygon ZK-EVM snark stark input test', () => {
             version,
         );
 
-        await polygonZkEVMContract.deployed();
+        await cdkValidiumContract.deployed();
     });
 
     it('Check Accumulate input Hash', async () => {
@@ -66,7 +69,7 @@ describe('Polygon ZK-EVM snark stark input test', () => {
             timestamp,
             sequencerAddr,
         );
-        const accumulateInputHashSC = await polygonZkEVMContract.calculateAccInputHash(
+        const accumulateInputHashSC = await cdkValidiumContract.calculateAccInputHash(
             oldAccInputHash,
             batchL2Data,
             globalExitRoot,
@@ -91,9 +94,9 @@ describe('Polygon ZK-EVM snark stark input test', () => {
         const lastPendingStateConsolidated = 0;
         const sequencedTimestamp = 999;
         // set smart contract with correct parameters
-        await polygonZkEVMContract.setStateRoot(oldStateRoot, oldNumBatch);
-        await polygonZkEVMContract.setSequencedBatches(newNumBatch, newAccInputHash, sequencedTimestamp, lastPendingStateConsolidated);
-        await polygonZkEVMContract.setSequencedBatch(1);
+        await cdkValidiumContract.setStateRoot(oldStateRoot, oldNumBatch);
+        await cdkValidiumContract.setSequencedBatches(newNumBatch, newAccInputHash, sequencedTimestamp, lastPendingStateConsolidated);
+        await cdkValidiumContract.setSequencedBatch(1);
 
         await ethers.provider.send('hardhat_impersonateAccount', [aggregatorAddress]);
         const aggregator = await ethers.getSigner(aggregatorAddress);
@@ -104,7 +107,7 @@ describe('Polygon ZK-EVM snark stark input test', () => {
 
         // Compute SC input
         const pendingStateNum = 0;
-        const inputSnarkSC = await polygonZkEVMContract.connect(aggregator).getNextSnarkInput(
+        const inputSnarkSC = await cdkValidiumContract.connect(aggregator).getNextSnarkInput(
             pendingStateNum,
             oldNumBatch,
             newNumBatch,

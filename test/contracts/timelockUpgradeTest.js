@@ -3,7 +3,7 @@ const { ethers, upgrades } = require('hardhat');
 
 // OZ test functions
 function genOperation(target, value, data, predecessor, salt) {
-    const id = ethers.solidityPackedKeccak256([
+    const id = ethers.utils.solidityKeccak256([
         'address',
         'uint256',
         'bytes',
@@ -21,7 +21,7 @@ function genOperation(target, value, data, predecessor, salt) {
     };
 }
 
-describe('Polygon ZK-EVM', () => {
+describe('CDKValidium', () => {
     let deployer;
     let trustedAggregator;
     let trustedSequencer;
@@ -29,22 +29,23 @@ describe('Polygon ZK-EVM', () => {
 
     let timelockContract;
     let verifierContract;
-    let polygonZkEVMBridgeContract;
-    let polygonZkEVMContract;
+    let PolygonZkEVMBridgeContract;
+    let cdkValidiumContract;
+    let cdkDataCommitteeContract;
     let maticTokenContract;
-    let polygonZkEVMGlobalExitRoot;
+    let PolygonZkEVMGlobalExitRoot;
 
     const maticTokenName = 'Matic Token';
     const maticTokenSymbol = 'MATIC';
-    const maticTokenInitialBalance = ethers.parseEther('20000000');
+    const maticTokenInitialBalance = ethers.utils.parseEther('20000000');
 
     const genesisRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
 
     const networkIDMainnet = 0;
 
-    const urlSequencer = 'http://zkevm-json-rpc:8123';
+    const urlSequencer = 'http://cdk-validium-json-rpc:8123';
     const chainID = 1000;
-    const networkName = 'zkevm';
+    const networkName = 'cdk-validium';
     const version = '0.0.1';
     const pendingStateTimeoutDefault = 10;
     const trustedAggregatorTimeoutDefault = 10;
@@ -83,43 +84,56 @@ describe('Polygon ZK-EVM', () => {
         }
 
         const nonceProxyBridge = Number((await ethers.provider.getTransactionCount(deployer.address))) + (firstDeployment ? 3 : 2);
-        const nonceProxyZkevm = nonceProxyBridge + 2; // Always have to redeploy impl since the polygonZkEVMGlobalExitRoot address changes
+        const nonceProxyCommittee = nonceProxyBridge + (firstDeployment ? 2 : 1);
+        // Always have to redeploy impl since the PolygonZkEVMGlobalExitRoot address changes
+        const nonceProxyCDKValidium = nonceProxyCommittee + 2;
 
-        const precalculateBridgeAddress = ethers.getContractAddress({ from: deployer.address, nonce: nonceProxyBridge });
-        const precalculateZkevmAddress = ethers.getContractAddress({ from: deployer.address, nonce: nonceProxyZkevm });
+        const precalculateBridgeAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyBridge });
+        const precalculateCommitteeAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyCommittee });
+        const precalculateCDKValidiumAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyCDKValidium });
         firstDeployment = false;
 
         const PolygonZkEVMGlobalExitRootFactory = await ethers.getContractFactory('PolygonZkEVMGlobalExitRoot');
-        polygonZkEVMGlobalExitRoot = await upgrades.deployProxy(PolygonZkEVMGlobalExitRootFactory, [], {
+        PolygonZkEVMGlobalExitRoot = await upgrades.deployProxy(PolygonZkEVMGlobalExitRootFactory, [], {
             initializer: false,
-            constructorArgs: [precalculateZkevmAddress, precalculateBridgeAddress],
+            constructorArgs: [precalculateCDKValidiumAddress, precalculateBridgeAddress],
             unsafeAllow: ['constructor', 'state-variable-immutable'],
         });
 
         // deploy PolygonZkEVMBridge
-        const polygonZkEVMBridgeFactory = await ethers.getContractFactory('PolygonZkEVMBridge');
-        polygonZkEVMBridgeContract = await upgrades.deployProxy(polygonZkEVMBridgeFactory, [], { initializer: false });
+        const PolygonZkEVMBridgeFactory = await ethers.getContractFactory('PolygonZkEVMBridge');
+        PolygonZkEVMBridgeContract = await upgrades.deployProxy(PolygonZkEVMBridgeFactory, [], { initializer: false });
 
-        // deploy PolygonZkEVMMock
-        const PolygonZkEVMFactory = await ethers.getContractFactory('PolygonZkEVMMock');
-        polygonZkEVMContract = await upgrades.deployProxy(PolygonZkEVMFactory, [], {
+        // deploy CDKDataCommittee
+        const cdkDataCommitteeFactory = await ethers.getContractFactory('CDKDataCommittee');
+        cdkDataCommitteeContract = await upgrades.deployProxy(
+            cdkDataCommitteeFactory,
+            [],
+            { initializer: false },
+        );
+
+        // deploy CDKValidiumMock
+        const CDKValidiumFactory = await ethers.getContractFactory('CDKValidiumMock');
+        cdkValidiumContract = await upgrades.deployProxy(CDKValidiumFactory, [], {
             initializer: false,
             constructorArgs: [
-                polygonZkEVMGlobalExitRoot.address,
+                PolygonZkEVMGlobalExitRoot.address,
                 maticTokenContract.address,
                 verifierContract.address,
-                polygonZkEVMBridgeContract.address,
+                PolygonZkEVMBridgeContract.address,
+                cdkDataCommitteeContract.address,
                 chainID,
                 0,
             ],
             unsafeAllow: ['constructor', 'state-variable-immutable'],
         });
 
-        expect(precalculateBridgeAddress).to.be.equal(polygonZkEVMBridgeContract.address);
-        expect(precalculateZkevmAddress).to.be.equal(polygonZkEVMContract.address);
+        expect(precalculateBridgeAddress).to.be.equal(PolygonZkEVMBridgeContract.address);
+        expect(precalculateCommitteeAddress).to.be.equal(cdkDataCommitteeContract.address);
+        expect(precalculateCDKValidiumAddress).to.be.equal(cdkValidiumContract.address);
 
-        await polygonZkEVMBridgeContract.initialize(networkIDMainnet, polygonZkEVMGlobalExitRoot.address, polygonZkEVMContract.address);
-        await polygonZkEVMContract.initialize(
+        await PolygonZkEVMBridgeContract.initialize(networkIDMainnet, PolygonZkEVMGlobalExitRoot.address, cdkValidiumContract.address);
+        await cdkValidiumContract.initialize(
             {
                 admin: admin.address,
                 trustedSequencer: trustedSequencer.address,
@@ -134,47 +148,47 @@ describe('Polygon ZK-EVM', () => {
         );
 
         // fund sequencer address with Matic tokens
-        await maticTokenContract.transfer(trustedSequencer.address, ethers.parseEther('1000'));
+        await maticTokenContract.transfer(trustedSequencer.address, ethers.utils.parseEther('1000'));
 
         const proposers = [deployer.address];
         const executors = [deployer.address];
         const adminAddress = deployer.address;
 
-        const timelockContractFactory = await ethers.getContractFactory('PolygonZkEVMTimelock');
-        timelockContract = await timelockContractFactory.deploy(minDelay, proposers, executors, adminAddress, polygonZkEVMContract.address);
+        const timelockContractFactory = await ethers.getContractFactory('CDKValidiumTimelock');
+        timelockContract = await timelockContractFactory.deploy(minDelay, proposers, executors, adminAddress, cdkValidiumContract.address);
         await timelockContract.deployed();
     });
 
     it('Should upgrade brdige correctly', async () => {
         // Upgrade the contract
-        const polygonZkEVMBridgeFactoryV2 = await ethers.getContractFactory('PolygonZkEVMBridgeMock');
-        const polygonZkEVMBridgeContractV2 = polygonZkEVMBridgeFactoryV2.attach(polygonZkEVMBridgeContract.address);
+        const PolygonZkEVMBridgeFactoryV2 = await ethers.getContractFactory('PolygonZkEVMBridgeMock');
+        const PolygonZkEVMBridgeContractV2 = PolygonZkEVMBridgeFactoryV2.attach(PolygonZkEVMBridgeContract.address);
 
         // Check that is the v0 contract
-        await expect(polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
+        await expect(PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
 
         // Upgrade the contract
-        await upgrades.upgradeProxy(polygonZkEVMBridgeContract.address, polygonZkEVMBridgeFactoryV2);
+        await upgrades.upgradeProxy(PolygonZkEVMBridgeContract.address, PolygonZkEVMBridgeFactoryV2);
 
-        await expect(await polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.equal(0);
+        await expect(await PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.equal(0);
     });
 
     it('Should transferOwnership of the proxyAdmin to the timelock', async () => {
         // Upgrade the contract
-        const polygonZkEVMBridgeFactoryV2 = await ethers.getContractFactory('PolygonZkEVMBridgeMock');
-        const polygonZkEVMBridgeContractV2 = polygonZkEVMBridgeFactoryV2.attach(polygonZkEVMBridgeContract.address);
+        const PolygonZkEVMBridgeFactoryV2 = await ethers.getContractFactory('PolygonZkEVMBridgeMock');
+        const PolygonZkEVMBridgeContractV2 = PolygonZkEVMBridgeFactoryV2.attach(PolygonZkEVMBridgeContract.address);
 
         // Check that is the v0 contract
-        await expect(polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
+        await expect(PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
 
         // Transfer ownership to timelock
         await upgrades.admin.transferProxyAdminOwnership(timelockContract.address);
 
         // Can't upgrade the contract since it does not have the ownership
-        await expect(upgrades.upgradeProxy(polygonZkEVMBridgeContract.address, polygonZkEVMBridgeFactoryV2))
+        await expect(upgrades.upgradeProxy(PolygonZkEVMBridgeContract.address, PolygonZkEVMBridgeFactoryV2))
             .to.be.reverted;
 
-        const implBridgeV2Address = await upgrades.prepareUpgrade(polygonZkEVMBridgeContract.address, polygonZkEVMBridgeFactoryV2);
+        const implBridgeV2Address = await upgrades.prepareUpgrade(PolygonZkEVMBridgeContract.address, PolygonZkEVMBridgeFactoryV2);
         const proxyAdmin = await upgrades.admin.getInstance();
 
         // Use timelock
@@ -183,11 +197,11 @@ describe('Polygon ZK-EVM', () => {
             0,
             proxyAdmin.interface.encodeFunctionData(
                 'upgrade',
-                [polygonZkEVMBridgeContract.address,
+                [PolygonZkEVMBridgeContract.address,
                     implBridgeV2Address],
             ),
-            ethers.HashZero,
-            ethers.HashZero,
+            ethers.constants.HashZero,
+            ethers.constants.HashZero,
         );
 
         // Schedule operation
@@ -210,7 +224,7 @@ describe('Polygon ZK-EVM', () => {
         )).to.be.revertedWith('TimelockController: operation is not ready');
 
         // Check that is the v0 contract
-        await expect(polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
+        await expect(PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
 
         await ethers.provider.send('evm_increaseTime', [minDelay]);
         await timelockContract.execute(
@@ -221,24 +235,24 @@ describe('Polygon ZK-EVM', () => {
             operation.salt,
         );
 
-        await expect(await polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.equal(0);
+        await expect(await PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.equal(0);
     });
 
     it('Should check thet in emergency state the minDelay is 0', async () => {
         // Upgrade the contract
-        const polygonZkEVMBridgeFactoryV2 = await ethers.getContractFactory('PolygonZkEVMBridgeMock');
-        const polygonZkEVMBridgeContractV2 = polygonZkEVMBridgeFactoryV2.attach(polygonZkEVMBridgeContract.address);
+        const PolygonZkEVMBridgeFactoryV2 = await ethers.getContractFactory('PolygonZkEVMBridgeMock');
+        const PolygonZkEVMBridgeContractV2 = PolygonZkEVMBridgeFactoryV2.attach(PolygonZkEVMBridgeContract.address);
 
         // Check that is the v0 contract
-        await expect(polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
+        await expect(PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
 
         // Transfer ownership to timelock
 
         // Can't upgrade the contract since it does not have the ownership
-        await expect(upgrades.upgradeProxy(polygonZkEVMBridgeContract.address, polygonZkEVMBridgeFactoryV2))
+        await expect(upgrades.upgradeProxy(PolygonZkEVMBridgeContract.address, PolygonZkEVMBridgeFactoryV2))
             .to.be.reverted;
 
-        const implBridgeV2Address = await upgrades.prepareUpgrade(polygonZkEVMBridgeContract.address, polygonZkEVMBridgeFactoryV2);
+        const implBridgeV2Address = await upgrades.prepareUpgrade(PolygonZkEVMBridgeContract.address, PolygonZkEVMBridgeFactoryV2);
         const proxyAdmin = await upgrades.admin.getInstance();
 
         // Use timelock
@@ -247,18 +261,18 @@ describe('Polygon ZK-EVM', () => {
             0,
             proxyAdmin.interface.encodeFunctionData(
                 'upgrade',
-                [polygonZkEVMBridgeContract.address,
+                [PolygonZkEVMBridgeContract.address,
                     implBridgeV2Address],
             ),
-            ethers.HashZero,
-            ethers.HashZero,
+            ethers.constants.HashZero,
+            ethers.constants.HashZero,
         );
 
         // Check current delay
         expect(await timelockContract.getMinDelay()).to.be.equal(minDelay);
 
-        // Put zkevmcontract on emergency mode
-        await polygonZkEVMContract.activateEmergencyState(0);
+        // Put CDKValidium contract on emergency mode
+        await cdkValidiumContract.activateEmergencyState(0);
 
         // Check delay is 0
         expect(await timelockContract.getMinDelay()).to.be.equal(0);
@@ -274,9 +288,9 @@ describe('Polygon ZK-EVM', () => {
         );
 
         // Check that is the v0 contract
-        await expect(polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
+        await expect(PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
 
-        // Transaction can be executed, delay is reduced to 0, but fails bc this timelock is not owner
+        // Transaction cna be executed, delay is reduced to 0, but fails bc this timelock is not owner
         await expect(timelockContract.execute(
             operation.target,
             operation.value,
@@ -287,7 +301,7 @@ describe('Polygon ZK-EVM', () => {
     });
 
     it('Should reprocude L2 enviromanet and check upgradability', async () => {
-        const timelockContractFactory = await ethers.getContractFactory('PolygonZkEVMTimelock');
+        const timelockContractFactory = await ethers.getContractFactory('CDKValidiumTimelock');
         const proposers = [deployer.address];
         const executors = [deployer.address];
         const adminAddress = deployer.address;
@@ -296,28 +310,28 @@ describe('Polygon ZK-EVM', () => {
             proposers,
             executors,
             adminAddress,
-            ethers.ZeroAddress,
+            ethers.constants.AddressZero,
         );
         await timelockContractL2.deployed();
 
         // Check deploy parameters
         expect(await timelockContractL2.getMinDelay()).to.be.equal(minDelay);
-        expect(await timelockContractL2.polygonZkEVM()).to.be.equal(ethers.ZeroAddress);
+        expect(await timelockContractL2.cdkValidium()).to.be.equal(ethers.constants.AddressZero);
 
         // Upgrade the contract
-        const polygonZkEVMBridgeFactoryV2 = await ethers.getContractFactory('PolygonZkEVMBridgeMock');
-        const polygonZkEVMBridgeContractV2 = polygonZkEVMBridgeFactoryV2.attach(polygonZkEVMBridgeContract.address);
+        const PolygonZkEVMBridgeFactoryV2 = await ethers.getContractFactory('PolygonZkEVMBridgeMock');
+        const PolygonZkEVMBridgeContractV2 = PolygonZkEVMBridgeFactoryV2.attach(PolygonZkEVMBridgeContract.address);
 
         // Check that is the v0 contract
-        await expect(polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
+        await expect(PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
 
         // Transfer ownership to timelock
 
         // Can't upgrade the contract since it does not have the ownership
-        await expect(upgrades.upgradeProxy(polygonZkEVMBridgeContract.address, polygonZkEVMBridgeFactoryV2))
+        await expect(upgrades.upgradeProxy(PolygonZkEVMBridgeContract.address, PolygonZkEVMBridgeFactoryV2))
             .to.be.reverted;
 
-        const implBridgeV2Address = await upgrades.prepareUpgrade(polygonZkEVMBridgeContract.address, polygonZkEVMBridgeFactoryV2);
+        const implBridgeV2Address = await upgrades.prepareUpgrade(PolygonZkEVMBridgeContract.address, PolygonZkEVMBridgeFactoryV2);
         const proxyAdmin = await upgrades.admin.getInstance();
 
         // Use timelock
@@ -326,21 +340,21 @@ describe('Polygon ZK-EVM', () => {
             0,
             proxyAdmin.interface.encodeFunctionData(
                 'upgrade',
-                [polygonZkEVMBridgeContract.address,
+                [PolygonZkEVMBridgeContract.address,
                     implBridgeV2Address],
             ),
-            ethers.HashZero,
-            ethers.HashZero,
+            ethers.constants.HashZero,
+            ethers.constants.HashZero,
         );
 
         // Check current delay
         expect(await timelockContractL2.getMinDelay()).to.be.equal(minDelay);
 
         /*
-         * Put zkevmcontract on emergency mode
-         * Does not affect this deployment
+         * Put CDKValidium contract on emergency mode
+         * Does not affect thsi deployment
          */
-        await polygonZkEVMContract.activateEmergencyState(0);
+        await cdkValidiumContract.activateEmergencyState(0);
 
         // Check delay is 0
         expect(await timelockContractL2.getMinDelay()).to.be.equal(minDelay);
@@ -365,9 +379,9 @@ describe('Polygon ZK-EVM', () => {
         );
 
         // Check that is the v0 contract
-        await expect(polygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
+        await expect(PolygonZkEVMBridgeContractV2.maxEtherBridge()).to.be.reverted;
 
-        // Transaction can be executed, delay is reduced to 0, but fails bc this timelock is not owner
+        // Transaction cna be executed, delay is reduced to 0, but fails bc this timelock is not owner
         await expect(timelockContractL2.execute(
             operation.target,
             operation.value,

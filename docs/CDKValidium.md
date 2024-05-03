@@ -14,6 +14,7 @@ To enter and exit of the L2 network will be used a PolygonZkEVMBridge smart cont
     contract IERC20Upgradeable _matic,
     contract IVerifierRollup _rollupVerifier,
     contract IPolygonZkEVMBridge _bridgeAddress,
+    contract ICDKDataCommittee _dataCommitteeAddress,
     uint64 _chainID,
     uint64 _forkID
   ) public
@@ -27,13 +28,14 @@ To enter and exit of the L2 network will be used a PolygonZkEVMBridge smart cont
 |`_matic` | contract IERC20Upgradeable | MATIC token address
 |`_rollupVerifier` | contract IVerifierRollup | Rollup verifier address
 |`_bridgeAddress` | contract IPolygonZkEVMBridge | Bridge address
+|`_dataCommitteeAddress` | contract ICDKDataCommittee | Data committee address
 |`_chainID` | uint64 | L2 chainID
 |`_forkID` | uint64 | Fork Id
 
 ### initialize
 ```solidity
   function initialize(
-    struct PolygonZkEVM.InitializePackedParameters initializePackedParameters,
+    struct CDKValidium.InitializePackedParameters initializePackedParameters,
     bytes32 genesisRoot,
     string _trustedSequencerURL,
     string _networkName
@@ -44,7 +46,7 @@ To enter and exit of the L2 network will be used a PolygonZkEVMBridge smart cont
 #### Parameters:
 | Name | Type | Description                                                          |
 | :--- | :--- | :------------------------------------------------------------------- |
-|`initializePackedParameters` | struct PolygonZkEVM.InitializePackedParameters | Struct to save gas and avoid stack too deep errors
+|`initializePackedParameters` | struct CDKValidium.InitializePackedParameters | Struct to save gas and avoid stack too deep errors
 |`genesisRoot` | bytes32 | Rollup genesis root
 |`_trustedSequencerURL` | string | Trusted sequencer URL
 |`_networkName` | string | L2 network name
@@ -52,8 +54,9 @@ To enter and exit of the L2 network will be used a PolygonZkEVMBridge smart cont
 ### sequenceBatches
 ```solidity
   function sequenceBatches(
-    struct PolygonZkEVM.BatchData[] batches,
-    address l2Coinbase
+    struct CDKValidium.BatchData[] batches,
+    address l2Coinbase,
+    bytes signaturesAndAddrs
   ) external
 ```
 Allows a sequencer to send multiple batches
@@ -62,8 +65,11 @@ Allows a sequencer to send multiple batches
 #### Parameters:
 | Name | Type | Description                                                          |
 | :--- | :--- | :------------------------------------------------------------------- |
-|`batches` | struct PolygonZkEVM.BatchData[] | Struct array which holds the necessary data to append new batches to the sequence
+|`batches` | struct CDKValidium.BatchData[] | Struct array which holds the necessary data to append new batches to the sequence
 |`l2Coinbase` | address | Address that will receive the fees from L2
+|`signaturesAndAddrs` | bytes | Byte array containing the signatures and all the addresses of the committee in ascending order
+[signature 0, ..., signature requiredAmountOfSignatures -1, address 0, ... address N]
+note that each ECDSA signatures are used, therefore each one must be 65 bytes
 
 ### verifyBatches
 ```solidity
@@ -214,7 +220,7 @@ with the same nonce
 ### sequenceForceBatches
 ```solidity
   function sequenceForceBatches(
-    struct PolygonZkEVM.ForcedBatchData[] batches
+    struct CDKValidium.ForcedBatchData[] batches
   ) external
 ```
 Allows anyone to sequence forced Batches if the trusted sequencer has not done so in the timeout period
@@ -223,7 +229,7 @@ Allows anyone to sequence forced Batches if the trusted sequencer has not done s
 #### Parameters:
 | Name | Type | Description                                                          |
 | :--- | :--- | :------------------------------------------------------------------- |
-|`batches` | struct PolygonZkEVM.ForcedBatchData[] | Struct array which holds the necessary data to append force batches
+|`batches` | struct CDKValidium.ForcedBatchData[] | Struct array which holds the necessary data to append force batches
 
 ### setTrustedSequencer
 ```solidity
@@ -415,7 +421,7 @@ if it's possible to prove a different state root given the same batches
     bytes32[24] proof
   ) external
 ```
-Allows to halt the PolygonZkEVM if its possible to prove a different state root given the same batches
+Allows to halt the CDKValidium if its possible to prove a different state root given the same batches
 
 
 #### Parameters:
@@ -461,7 +467,7 @@ Internal function that proves a different state root given the same batches to v
     uint64 sequencedBatchNum
   ) external
 ```
-Function to activate emergency state, which also enables the emergency mode on both PolygonZkEVM and PolygonZkEVMBridge contracts
+Function to activate emergency state, which also enables the emergency mode on both CDKValidium and PolygonZkEVMBridge contracts
 If not called by the owner must be provided a batcnNum that does not have been aggregated in a _HALT_AGGREGATION_TIMEOUT period
 
 
@@ -475,7 +481,7 @@ If not called by the owner must be provided a batcnNum that does not have been a
   function deactivateEmergencyState(
   ) external
 ```
-Function to deactivate emergency state on both PolygonZkEVM and PolygonZkEVMBridge contracts
+Function to deactivate emergency state on both CDKValidium and PolygonZkEVMBridge contracts
 
 
 
@@ -484,7 +490,7 @@ Function to deactivate emergency state on both PolygonZkEVM and PolygonZkEVMBrid
   function _activateEmergencyState(
   ) internal
 ```
-Internal function to activate emergency state on both PolygonZkEVM and PolygonZkEVMBridge contracts
+Internal function to activate emergency state on both CDKValidium and PolygonZkEVMBridge contracts
 
 
 

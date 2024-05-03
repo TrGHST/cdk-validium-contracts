@@ -7,7 +7,8 @@ import "./interfaces/IPolygonZkEVMGlobalExitRoot.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IPolygonZkEVMBridge.sol";
 import "./lib/EmergencyManager.sol";
-import "./interfaces/IPolygonZkEVMErrors.sol";
+import "./interfaces/ICDKValidiumErrors.sol";
+import "./interfaces/ICDKDataCommittee.sol";
 
 /**
  * Contract responsible for managing the states and the updates of L2 network.
@@ -17,16 +18,16 @@ import "./interfaces/IPolygonZkEVMErrors.sol";
  * The aggregators will be able to verify the sequenced state with zkProofs and therefore make available the withdrawals from L2 network.
  * To enter and exit of the L2 network will be used a PolygonZkEVMBridge smart contract that will be deployed in both networks.
  */
-contract PolygonZkEVM is
+contract CDKValidium is
     OwnableUpgradeable,
     EmergencyManager,
-    IPolygonZkEVMErrors
+    ICDKValidiumErrors
 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     /**
      * @notice Struct which will be used to call sequenceBatches
-     * @param transactions L2 ethereum transactions EIP-155 or pre-EIP-155 with signature:
+     * @param transactionsHash keccak256 hash of the L2 ethereum transactions EIP-155 or pre-EIP-155 with signature:
      * EIP-155: rlp(nonce, gasprice, gasLimit, to, value, data, chainid, 0, 0,) || v || r || s
      * pre-EIP-155: rlp(nonce, gasprice, gasLimit, to, value, data) || v || r || s
      * @param globalExitRoot Global exit root of the batch
@@ -34,7 +35,7 @@ contract PolygonZkEVM is
      * @param minForcedTimestamp Minimum timestamp of the force batch data, empty when non forced batch
      */
     struct BatchData {
-        bytes transactions;
+        bytes32 transactionsHash;
         bytes32 globalExitRoot;
         uint64 timestamp;
         uint64 minForcedTimestamp;
@@ -155,6 +156,9 @@ contract PolygonZkEVM is
 
     // PolygonZkEVM Bridge Address
     IPolygonZkEVMBridge public immutable bridgeAddress;
+
+    // CDK Data Committee Address
+    ICDKDataCommittee public immutable dataCommitteeAddress;
 
     // L2 chain identifier
     uint64 public immutable chainID;
@@ -372,6 +376,7 @@ contract PolygonZkEVM is
      * @param _matic MATIC token address
      * @param _rollupVerifier Rollup verifier address
      * @param _bridgeAddress Bridge address
+     * @param _dataCommitteeAddress Data committee address
      * @param _chainID L2 chainID
      * @param _forkID Fork Id
      */
@@ -380,6 +385,7 @@ contract PolygonZkEVM is
         IERC20Upgradeable _matic,
         IVerifierRollup _rollupVerifier,
         IPolygonZkEVMBridge _bridgeAddress,
+        ICDKDataCommittee _dataCommitteeAddress,
         uint64 _chainID,
         uint64 _forkID
     ) {
@@ -387,6 +393,7 @@ contract PolygonZkEVM is
         matic = _matic;
         rollupVerifier = _rollupVerifier;
         bridgeAddress = _bridgeAddress;
+        dataCommitteeAddress = _dataCommitteeAddress;   
         chainID = _chainID;
         forkID = _forkID;
     }
@@ -480,10 +487,14 @@ contract PolygonZkEVM is
      * @notice Allows a sequencer to send multiple batches
      * @param batches Struct array which holds the necessary data to append new batches to the sequence
      * @param l2Coinbase Address that will receive the fees from L2
+     * @param signaturesAndAddrs Byte array containing the signatures and all the addresses of the committee in ascending order
+     * [signature 0, ..., signature requiredAmountOfSignatures -1, address 0, ... address N]
+     * note that each ECDSA signatures are used, therefore each one must be 65 bytes
      */
     function sequenceBatches(
         BatchData[] calldata batches,
-        address l2Coinbase
+        address l2Coinbase,
+        bytes calldata signaturesAndAddrs
     ) external ifNotEmergencyState onlyTrustedSequencer {
         uint256 batchesNum = batches.length;
         if (batchesNum == 0) {
@@ -508,11 +519,6 @@ contract PolygonZkEVM is
             // Load current sequence
             BatchData memory currentBatch = batches[i];
 
-            // Store the current transactions hash since can be used more than once for gas saving
-            bytes32 currentTransactionsHash = keccak256(
-                currentBatch.transactions
-            );
-
             // Check if it's a forced batch
             if (currentBatch.minForcedTimestamp > 0) {
                 currentLastForceBatchSequenced++;
@@ -520,7 +526,7 @@ contract PolygonZkEVM is
                 // Check forced data matches
                 bytes32 hashedForcedBatchData = keccak256(
                     abi.encodePacked(
-                        currentTransactionsHash,
+                        currentBatch.transactionsHash,
                         currentBatch.globalExitRoot,
                         currentBatch.minForcedTimestamp
                     )
@@ -552,13 +558,6 @@ contract PolygonZkEVM is
                 ) {
                     revert GlobalExitRootNotExist();
                 }
-
-                if (
-                    currentBatch.transactions.length >
-                    _MAX_TRANSACTIONS_BYTE_LENGTH
-                ) {
-                    revert TransactionsLengthAboveMax();
-                }
             }
 
             // Check Batch timestamps are correct
@@ -573,7 +572,7 @@ contract PolygonZkEVM is
             currentAccInputHash = keccak256(
                 abi.encodePacked(
                     currentAccInputHash,
-                    currentTransactionsHash,
+                    currentBatch.transactionsHash,
                     currentBatch.globalExitRoot,
                     currentBatch.timestamp,
                     l2Coinbase
@@ -583,6 +582,10 @@ contract PolygonZkEVM is
             // Update timestamp
             currentTimestamp = currentBatch.timestamp;
         }
+
+        // Validate that the data committee has signed the accInputHash for this sequence
+        dataCommitteeAddress.verifySignatures(currentAccInputHash, signaturesAndAddrs);
+        
         // Update currentBatchSequenced
         currentBatchSequenced += uint64(batchesNum);
 
@@ -1384,7 +1387,7 @@ contract PolygonZkEVM is
     }
 
     /**
-     * @notice Allows to halt the PolygonZkEVM if its possible to prove a different state root given the same batches
+     * @notice Allows to halt the CDKValidium if its possible to prove a different state root given the same batches
      * @param initPendingStateNum Init pending state, 0 if consolidated state is used
      * @param finalPendingStateNum Final pending state, that will be used to compare with the newStateRoot
      * @param initNumBatch Batch which the aggregator starts the verification
@@ -1521,7 +1524,7 @@ contract PolygonZkEVM is
     }
 
     /**
-     * @notice Function to activate emergency state, which also enables the emergency mode on both PolygonZkEVM and PolygonZkEVMBridge contracts
+     * @notice Function to activate emergency state, which also enables the emergency mode on both CDKValidium and PolygonZkEVMBridge contracts
      * If not called by the owner must be provided a batcnNum that does not have been aggregated in a _HALT_AGGREGATION_TIMEOUT period
      * @param sequencedBatchNum Sequenced batch number that has not been aggreagated in _HALT_AGGREGATION_TIMEOUT
      */
@@ -1556,7 +1559,7 @@ contract PolygonZkEVM is
     }
 
     /**
-     * @notice Function to deactivate emergency state on both PolygonZkEVM and PolygonZkEVMBridge contracts
+     * @notice Function to deactivate emergency state on both CDKValidium and PolygonZkEVMBridge contracts
      */
     function deactivateEmergencyState() external onlyAdmin {
         // Deactivate emergency state on PolygonZkEVMBridge
@@ -1567,7 +1570,7 @@ contract PolygonZkEVM is
     }
 
     /**
-     * @notice Internal function to activate emergency state on both PolygonZkEVM and PolygonZkEVMBridge contracts
+     * @notice Internal function to activate emergency state on both CDKValidium and PolygonZkEVMBridge contracts
      */
     function _activateEmergencyState() internal override {
         // Activate emergency state on PolygonZkEVM Bridge

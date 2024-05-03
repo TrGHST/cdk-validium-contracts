@@ -6,7 +6,7 @@ const { contractUtils } = require('@0xpolygonhermez/zkevm-commonjs');
 
 const { calculateSnarkInput, calculateAccInputHash, calculateBatchHashData } = contractUtils;
 
-describe('Polygon ZK-EVM', () => {
+describe('CDKValidium', () => {
     let deployer;
     let trustedAggregator;
     let trustedSequencer;
@@ -14,28 +14,29 @@ describe('Polygon ZK-EVM', () => {
     let aggregator1;
 
     let verifierContract;
-    let polygonZkEVMBridgeContract;
-    let polygonZkEVMContract;
+    let PolygonZkEVMBridgeContract;
+    let cdkValidiumContract;
+    let cdkDataCommitteeContract;
     let maticTokenContract;
-    let polygonZkEVMGlobalExitRoot;
+    let PolygonZkEVMGlobalExitRoot;
 
     const maticTokenName = 'Matic Token';
     const maticTokenSymbol = 'MATIC';
-    const maticTokenInitialBalance = ethers.parseEther('20000000');
+    const maticTokenInitialBalance = ethers.utils.parseEther('20000000');
 
     const genesisRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
 
     const networkIDMainnet = 0;
-    const urlSequencer = 'http://zkevm-json-rpc:8123';
+    const urlSequencer = 'http://cdk-validium-json-rpc:8123';
     const chainID = 1000;
-    const networkName = 'zkevm';
+    const networkName = 'cdk-validium';
     const version = '0.0.1';
     const forkID = 0;
     const pendingStateTimeoutDefault = 100;
     const trustedAggregatorTimeoutDefault = 10;
     let firstDeployment = true;
 
-    // PolygonZkEVM Constants
+    // CDKValidium Constants
     const FORCE_BATCH_TIMEOUT = 60 * 60 * 24 * 5; // 5 days
     const MAX_BATCH_MULTIPLIER = 12;
     const HALT_AGGREGATION_TIMEOUT = 60 * 60 * 24 * 7; // 7 days
@@ -71,43 +72,56 @@ describe('Polygon ZK-EVM', () => {
             firstDeployment = false;
         }
         const nonceProxyBridge = Number((await ethers.provider.getTransactionCount(deployer.address))) + (firstDeployment ? 3 : 2);
-        const nonceProxyZkevm = nonceProxyBridge + 2; // Always have to redeploy impl since the polygonZkEVMGlobalExitRoot address changes
+        const nonceProxyCommittee = nonceProxyBridge + (firstDeployment ? 2 : 1);
+        // Always have to redeploy impl since the PolygonZkEVMGlobalExitRoot address changes
+        const nonceProxyCDKValidium = nonceProxyCommittee + 2;
 
-        const precalculateBridgeAddress = ethers.getContractAddress({ from: deployer.address, nonce: nonceProxyBridge });
-        const precalculateZkevmAddress = ethers.getContractAddress({ from: deployer.address, nonce: nonceProxyZkevm });
+        const precalculateBridgeAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyBridge });
+        const precalculateCommitteeAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyCommittee });
+        const precalculateCDKValidiumAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyCDKValidium });
         firstDeployment = false;
 
         const PolygonZkEVMGlobalExitRootFactory = await ethers.getContractFactory('PolygonZkEVMGlobalExitRoot');
-        polygonZkEVMGlobalExitRoot = await upgrades.deployProxy(PolygonZkEVMGlobalExitRootFactory, [], {
+        PolygonZkEVMGlobalExitRoot = await upgrades.deployProxy(PolygonZkEVMGlobalExitRootFactory, [], {
             initializer: false,
-            constructorArgs: [precalculateZkevmAddress, precalculateBridgeAddress],
+            constructorArgs: [precalculateCDKValidiumAddress, precalculateBridgeAddress],
             unsafeAllow: ['constructor', 'state-variable-immutable'],
         });
 
         // deploy PolygonZkEVMBridge
-        const polygonZkEVMBridgeFactory = await ethers.getContractFactory('PolygonZkEVMBridge');
-        polygonZkEVMBridgeContract = await upgrades.deployProxy(polygonZkEVMBridgeFactory, [], { initializer: false });
+        const PolygonZkEVMBridgeFactory = await ethers.getContractFactory('PolygonZkEVMBridge');
+        PolygonZkEVMBridgeContract = await upgrades.deployProxy(PolygonZkEVMBridgeFactory, [], { initializer: false });
 
-        // deploy PolygonZkEVMMock
-        const PolygonZkEVMFactory = await ethers.getContractFactory('PolygonZkEVMMock');
-        polygonZkEVMContract = await upgrades.deployProxy(PolygonZkEVMFactory, [], {
+        // deploy CDKDataCommittee
+        const cdkDataCommitteeFactory = await ethers.getContractFactory('CDKDataCommittee');
+        cdkDataCommitteeContract = await upgrades.deployProxy(
+            cdkDataCommitteeFactory,
+            [],
+            { initializer: false },
+        );
+
+        // deploy CDKValidiumMock
+        const CDKValidiumFactory = await ethers.getContractFactory('CDKValidiumMock');
+        cdkValidiumContract = await upgrades.deployProxy(CDKValidiumFactory, [], {
             initializer: false,
             constructorArgs: [
-                polygonZkEVMGlobalExitRoot.address,
+                PolygonZkEVMGlobalExitRoot.address,
                 maticTokenContract.address,
                 verifierContract.address,
-                polygonZkEVMBridgeContract.address,
+                PolygonZkEVMBridgeContract.address,
+                cdkDataCommitteeContract.address,
                 chainID,
                 forkID,
             ],
             unsafeAllow: ['constructor', 'state-variable-immutable'],
         });
 
-        expect(precalculateBridgeAddress).to.be.equal(polygonZkEVMBridgeContract.address);
-        expect(precalculateZkevmAddress).to.be.equal(polygonZkEVMContract.address);
+        expect(precalculateBridgeAddress).to.be.equal(PolygonZkEVMBridgeContract.address);
+        expect(precalculateCommitteeAddress).to.be.equal(cdkDataCommitteeContract.address);
+        expect(precalculateCDKValidiumAddress).to.be.equal(cdkValidiumContract.address);
 
-        await polygonZkEVMBridgeContract.initialize(networkIDMainnet, polygonZkEVMGlobalExitRoot.address, polygonZkEVMContract.address);
-        await polygonZkEVMContract.initialize(
+        await PolygonZkEVMBridgeContract.initialize(networkIDMainnet, PolygonZkEVMGlobalExitRoot.address, cdkValidiumContract.address);
+        await cdkValidiumContract.initialize(
             {
                 admin: admin.address,
                 trustedSequencer: trustedSequencer.address,
@@ -120,53 +134,60 @@ describe('Polygon ZK-EVM', () => {
             networkName,
             version,
         );
+        await cdkDataCommitteeContract.initialize();
+        const expectedHash = ethers.utils.solidityKeccak256(['bytes'], [[]]);
+        await expect(cdkDataCommitteeContract.connect(deployer)
+            .setupCommittee(0, [], []))
+            .to.emit(cdkDataCommitteeContract, 'CommitteeUpdated')
+            .withArgs(expectedHash);
 
         // fund sequencer address with Matic tokens
-        await maticTokenContract.transfer(trustedSequencer.address, ethers.parseEther('1000'));
+        await maticTokenContract.transfer(trustedSequencer.address, ethers.utils.parseEther('1000'));
     });
 
     it('should check the constructor parameters', async () => {
-        expect(await polygonZkEVMContract.globalExitRootManager()).to.be.equal(polygonZkEVMGlobalExitRoot.address);
-        expect(await polygonZkEVMContract.matic()).to.be.equal(maticTokenContract.address);
-        expect(await polygonZkEVMContract.rollupVerifier()).to.be.equal(verifierContract.address);
-        expect(await polygonZkEVMContract.bridgeAddress()).to.be.equal(polygonZkEVMBridgeContract.address);
+        expect(await cdkValidiumContract.globalExitRootManager()).to.be.equal(PolygonZkEVMGlobalExitRoot.address);
+        expect(await cdkValidiumContract.matic()).to.be.equal(maticTokenContract.address);
+        expect(await cdkValidiumContract.rollupVerifier()).to.be.equal(verifierContract.address);
+        expect(await cdkValidiumContract.bridgeAddress()).to.be.equal(PolygonZkEVMBridgeContract.address);
 
-        expect(await polygonZkEVMContract.owner()).to.be.equal(deployer.address);
-        expect(await polygonZkEVMContract.admin()).to.be.equal(admin.address);
-        expect(await polygonZkEVMContract.chainID()).to.be.equal(chainID);
-        expect(await polygonZkEVMContract.trustedSequencer()).to.be.equal(trustedSequencer.address);
-        expect(await polygonZkEVMContract.pendingStateTimeout()).to.be.equal(pendingStateTimeoutDefault);
-        expect(await polygonZkEVMContract.trustedAggregator()).to.be.equal(trustedAggregator.address);
-        expect(await polygonZkEVMContract.trustedAggregatorTimeout()).to.be.equal(trustedAggregatorTimeoutDefault);
+        expect(await cdkValidiumContract.owner()).to.be.equal(deployer.address);
+        expect(await cdkValidiumContract.admin()).to.be.equal(admin.address);
+        expect(await cdkValidiumContract.chainID()).to.be.equal(chainID);
+        expect(await cdkValidiumContract.trustedSequencer()).to.be.equal(trustedSequencer.address);
+        expect(await cdkValidiumContract.pendingStateTimeout()).to.be.equal(pendingStateTimeoutDefault);
+        expect(await cdkValidiumContract.trustedAggregator()).to.be.equal(trustedAggregator.address);
+        expect(await cdkValidiumContract.trustedAggregatorTimeout()).to.be.equal(trustedAggregatorTimeoutDefault);
 
-        expect(await polygonZkEVMContract.batchNumToStateRoot(0)).to.be.equal(genesisRoot);
-        expect(await polygonZkEVMContract.trustedSequencerURL()).to.be.equal(urlSequencer);
-        expect(await polygonZkEVMContract.networkName()).to.be.equal(networkName);
+        expect(await cdkValidiumContract.batchNumToStateRoot(0)).to.be.equal(genesisRoot);
+        expect(await cdkValidiumContract.trustedSequencerURL()).to.be.equal(urlSequencer);
+        expect(await cdkValidiumContract.networkName()).to.be.equal(networkName);
 
-        expect(await polygonZkEVMContract.batchFee()).to.be.equal(ethers.parseEther('0.1'));
-        expect(await polygonZkEVMContract.batchFee()).to.be.equal(ethers.parseEther('0.1'));
-        expect(await polygonZkEVMContract.getForcedBatchFee()).to.be.equal(ethers.parseEther('10'));
+        expect(await cdkValidiumContract.batchFee()).to.be.equal(ethers.utils.parseEther('0.1'));
+        expect(await cdkValidiumContract.batchFee()).to.be.equal(ethers.utils.parseEther('0.1'));
+        expect(await cdkValidiumContract.getForcedBatchFee()).to.be.equal(ethers.utils.parseEther('10'));
 
-        expect(await polygonZkEVMContract.forceBatchTimeout()).to.be.equal(FORCE_BATCH_TIMEOUT);
-        expect(await polygonZkEVMContract.isForcedBatchDisallowed()).to.be.equal(true);
+        expect(await cdkValidiumContract.forceBatchTimeout()).to.be.equal(FORCE_BATCH_TIMEOUT);
+        expect(await cdkValidiumContract.isForcedBatchDisallowed()).to.be.equal(true);
     });
 
     it('should check initialize function', async () => {
-        const PolygonZkEVMFactory = await ethers.getContractFactory('PolygonZkEVMMock');
-        const polygonZkEVMContractInitialize = await upgrades.deployProxy(PolygonZkEVMFactory, [], {
+        const CDKValidiumFactory = await ethers.getContractFactory('CDKValidiumMock');
+        const cdkValidiumContractInitialize = await upgrades.deployProxy(CDKValidiumFactory, [], {
             initializer: false,
             constructorArgs: [
-                polygonZkEVMGlobalExitRoot.address,
+                PolygonZkEVMGlobalExitRoot.address,
                 maticTokenContract.address,
                 verifierContract.address,
-                polygonZkEVMBridgeContract.address,
+                PolygonZkEVMBridgeContract.address,
+                cdkDataCommitteeContract.address,
                 chainID,
                 forkID,
             ],
             unsafeAllow: ['constructor', 'state-variable-immutable'],
         });
 
-        await expect(polygonZkEVMContractInitialize.initialize(
+        await expect(cdkValidiumContractInitialize.initialize(
             {
                 admin: admin.address,
                 trustedSequencer: trustedSequencer.address,
@@ -180,7 +201,7 @@ describe('Polygon ZK-EVM', () => {
             version,
         )).to.be.revertedWith('PendingStateTimeoutExceedHaltAggregationTimeout');
 
-        await expect(polygonZkEVMContractInitialize.initialize(
+        await expect(cdkValidiumContractInitialize.initialize(
             {
                 admin: admin.address,
                 trustedSequencer: trustedSequencer.address,
@@ -195,7 +216,7 @@ describe('Polygon ZK-EVM', () => {
         )).to.be.revertedWith('TrustedAggregatorTimeoutExceedHaltAggregationTimeout');
 
         await expect(
-            polygonZkEVMContractInitialize.initialize(
+            cdkValidiumContractInitialize.initialize(
                 {
                     admin: admin.address,
                     trustedSequencer: trustedSequencer.address,
@@ -208,150 +229,150 @@ describe('Polygon ZK-EVM', () => {
                 networkName,
                 version,
             ),
-        ).to.emit(polygonZkEVMContractInitialize, 'UpdateZkEVMVersion').withArgs(0, forkID, version);
+        ).to.emit(cdkValidiumContractInitialize, 'UpdateZkEVMVersion').withArgs(0, forkID, version);
     });
 
     it('should check setters of admin', async () => {
-        expect(await polygonZkEVMContract.trustedSequencer()).to.be.equal(trustedSequencer.address);
-        expect(await polygonZkEVMContract.trustedSequencerURL()).to.be.equal(urlSequencer);
-        expect(await polygonZkEVMContract.trustedAggregator()).to.be.equal(trustedAggregator.address);
-        expect(await polygonZkEVMContract.trustedAggregatorTimeout()).to.be.equal(trustedAggregatorTimeoutDefault);
-        expect(await polygonZkEVMContract.pendingStateTimeout()).to.be.equal(pendingStateTimeoutDefault);
-        expect(await polygonZkEVMContract.admin()).to.be.equal(admin.address);
+        expect(await cdkValidiumContract.trustedSequencer()).to.be.equal(trustedSequencer.address);
+        expect(await cdkValidiumContract.trustedSequencerURL()).to.be.equal(urlSequencer);
+        expect(await cdkValidiumContract.trustedAggregator()).to.be.equal(trustedAggregator.address);
+        expect(await cdkValidiumContract.trustedAggregatorTimeout()).to.be.equal(trustedAggregatorTimeoutDefault);
+        expect(await cdkValidiumContract.pendingStateTimeout()).to.be.equal(pendingStateTimeoutDefault);
+        expect(await cdkValidiumContract.admin()).to.be.equal(admin.address);
 
         // setTrustedSequencer
-        await expect(polygonZkEVMContract.setTrustedSequencer(deployer.address))
+        await expect(cdkValidiumContract.setTrustedSequencer(deployer.address))
             .to.be.revertedWith('OnlyAdmin');
         await expect(
-            polygonZkEVMContract.connect(admin).setTrustedSequencer(deployer.address),
-        ).to.emit(polygonZkEVMContract, 'SetTrustedSequencer').withArgs(deployer.address);
-        expect(await polygonZkEVMContract.trustedSequencer()).to.be.equal(deployer.address);
+            cdkValidiumContract.connect(admin).setTrustedSequencer(deployer.address),
+        ).to.emit(cdkValidiumContract, 'SetTrustedSequencer').withArgs(deployer.address);
+        expect(await cdkValidiumContract.trustedSequencer()).to.be.equal(deployer.address);
 
         // setTrustedSequencerURL
         const url = 'https://test';
-        await expect(polygonZkEVMContract.setTrustedSequencerURL(url))
+        await expect(cdkValidiumContract.setTrustedSequencerURL(url))
             .to.be.revertedWith('OnlyAdmin');
         await expect(
-            polygonZkEVMContract.connect(admin).setTrustedSequencerURL(url),
-        ).to.emit(polygonZkEVMContract, 'SetTrustedSequencerURL').withArgs(url);
-        expect(await polygonZkEVMContract.trustedSequencerURL()).to.be.equal(url);
+            cdkValidiumContract.connect(admin).setTrustedSequencerURL(url),
+        ).to.emit(cdkValidiumContract, 'SetTrustedSequencerURL').withArgs(url);
+        expect(await cdkValidiumContract.trustedSequencerURL()).to.be.equal(url);
 
         // setTrustedAggregator
         const newTrustedAggregator = deployer.address;
-        await expect(polygonZkEVMContract.setTrustedAggregator(newTrustedAggregator))
+        await expect(cdkValidiumContract.setTrustedAggregator(newTrustedAggregator))
             .to.be.revertedWith('OnlyAdmin');
         await expect(
-            polygonZkEVMContract.connect(admin).setTrustedAggregator(newTrustedAggregator),
-        ).to.emit(polygonZkEVMContract, 'SetTrustedAggregator').withArgs(newTrustedAggregator);
-        expect(await polygonZkEVMContract.trustedAggregator()).to.be.equal(newTrustedAggregator);
+            cdkValidiumContract.connect(admin).setTrustedAggregator(newTrustedAggregator),
+        ).to.emit(cdkValidiumContract, 'SetTrustedAggregator').withArgs(newTrustedAggregator);
+        expect(await cdkValidiumContract.trustedAggregator()).to.be.equal(newTrustedAggregator);
 
         // setTrustedAggregatorTimeout
-        await expect(polygonZkEVMContract.setTrustedAggregatorTimeout(trustedAggregatorTimeoutDefault))
+        await expect(cdkValidiumContract.setTrustedAggregatorTimeout(trustedAggregatorTimeoutDefault))
             .to.be.revertedWith('OnlyAdmin');
 
-        await expect(polygonZkEVMContract.connect(admin).setTrustedAggregatorTimeout(HALT_AGGREGATION_TIMEOUT + 1))
+        await expect(cdkValidiumContract.connect(admin).setTrustedAggregatorTimeout(HALT_AGGREGATION_TIMEOUT + 1))
             .to.be.revertedWith('TrustedAggregatorTimeoutExceedHaltAggregationTimeout');
 
-        await expect(polygonZkEVMContract.connect(admin).setTrustedAggregatorTimeout(trustedAggregatorTimeoutDefault))
+        await expect(cdkValidiumContract.connect(admin).setTrustedAggregatorTimeout(trustedAggregatorTimeoutDefault))
             .to.be.revertedWith('NewTrustedAggregatorTimeoutMustBeLower');
 
         const newTrustedAggregatorTimeout = trustedAggregatorTimeoutDefault - 1;
         await expect(
-            polygonZkEVMContract.connect(admin).setTrustedAggregatorTimeout(newTrustedAggregatorTimeout),
-        ).to.emit(polygonZkEVMContract, 'SetTrustedAggregatorTimeout').withArgs(newTrustedAggregatorTimeout);
-        expect(await polygonZkEVMContract.trustedAggregatorTimeout()).to.be.equal(newTrustedAggregatorTimeout);
+            cdkValidiumContract.connect(admin).setTrustedAggregatorTimeout(newTrustedAggregatorTimeout),
+        ).to.emit(cdkValidiumContract, 'SetTrustedAggregatorTimeout').withArgs(newTrustedAggregatorTimeout);
+        expect(await cdkValidiumContract.trustedAggregatorTimeout()).to.be.equal(newTrustedAggregatorTimeout);
 
         // setPendingStateTimeoutDefault
-        await expect(polygonZkEVMContract.setPendingStateTimeout(pendingStateTimeoutDefault))
+        await expect(cdkValidiumContract.setPendingStateTimeout(pendingStateTimeoutDefault))
             .to.be.revertedWith('OnlyAdmin');
 
-        await expect(polygonZkEVMContract.connect(admin).setPendingStateTimeout(HALT_AGGREGATION_TIMEOUT + 1))
+        await expect(cdkValidiumContract.connect(admin).setPendingStateTimeout(HALT_AGGREGATION_TIMEOUT + 1))
             .to.be.revertedWith('PendingStateTimeoutExceedHaltAggregationTimeout');
 
-        await expect(polygonZkEVMContract.connect(admin).setPendingStateTimeout(pendingStateTimeoutDefault))
+        await expect(cdkValidiumContract.connect(admin).setPendingStateTimeout(pendingStateTimeoutDefault))
             .to.be.revertedWith('NewPendingStateTimeoutMustBeLower');
 
         const newPendingStateTimeoutDefault = pendingStateTimeoutDefault - 1;
         await expect(
-            polygonZkEVMContract.connect(admin).setPendingStateTimeout(newPendingStateTimeoutDefault),
-        ).to.emit(polygonZkEVMContract, 'SetPendingStateTimeout').withArgs(newPendingStateTimeoutDefault);
-        expect(await polygonZkEVMContract.pendingStateTimeout()).to.be.equal(newPendingStateTimeoutDefault);
+            cdkValidiumContract.connect(admin).setPendingStateTimeout(newPendingStateTimeoutDefault),
+        ).to.emit(cdkValidiumContract, 'SetPendingStateTimeout').withArgs(newPendingStateTimeoutDefault);
+        expect(await cdkValidiumContract.pendingStateTimeout()).to.be.equal(newPendingStateTimeoutDefault);
 
         // setMultiplierBatchFee
         const newMultiplierBatchFee = 1023;
-        await expect(polygonZkEVMContract.connect(admin).setMultiplierBatchFee(newMultiplierBatchFee + 1))
+        await expect(cdkValidiumContract.connect(admin).setMultiplierBatchFee(newMultiplierBatchFee + 1))
             .to.be.revertedWith('InvalidRangeMultiplierBatchFee');
 
         await expect(
-            polygonZkEVMContract.connect(admin).setMultiplierBatchFee(newMultiplierBatchFee),
-        ).to.emit(polygonZkEVMContract, 'SetMultiplierBatchFee').withArgs(newMultiplierBatchFee);
-        expect(await polygonZkEVMContract.multiplierBatchFee()).to.be.equal(newMultiplierBatchFee);
+            cdkValidiumContract.connect(admin).setMultiplierBatchFee(newMultiplierBatchFee),
+        ).to.emit(cdkValidiumContract, 'SetMultiplierBatchFee').withArgs(newMultiplierBatchFee);
+        expect(await cdkValidiumContract.multiplierBatchFee()).to.be.equal(newMultiplierBatchFee);
 
         // setVerifyBatchTimeTarget
         const newVerifyBatchTimeTarget = 100;
 
-        await expect(polygonZkEVMContract.connect(admin).setVerifyBatchTimeTarget(60 * 60 * 24 + 1)) // more than 1 day
+        await expect(cdkValidiumContract.connect(admin).setVerifyBatchTimeTarget(60 * 60 * 24 + 1)) // more than 1 day
             .to.be.revertedWith('InvalidRangeBatchTimeTarget');
 
         await expect(
-            polygonZkEVMContract.connect(admin).setVerifyBatchTimeTarget(newVerifyBatchTimeTarget),
-        ).to.emit(polygonZkEVMContract, 'SetVerifyBatchTimeTarget').withArgs(newVerifyBatchTimeTarget);
-        expect(await polygonZkEVMContract.verifyBatchTimeTarget()).to.be.equal(newVerifyBatchTimeTarget);
+            cdkValidiumContract.connect(admin).setVerifyBatchTimeTarget(newVerifyBatchTimeTarget),
+        ).to.emit(cdkValidiumContract, 'SetVerifyBatchTimeTarget').withArgs(newVerifyBatchTimeTarget);
+        expect(await cdkValidiumContract.verifyBatchTimeTarget()).to.be.equal(newVerifyBatchTimeTarget);
 
         // setPendingStateTimeoutDefault
         const newForceBatchTimeout = 0;
-        await expect(polygonZkEVMContract.setForceBatchTimeout(newForceBatchTimeout))
+        await expect(cdkValidiumContract.setForceBatchTimeout(newForceBatchTimeout))
             .to.be.revertedWith('OnlyAdmin');
 
-        await expect(polygonZkEVMContract.connect(admin).setForceBatchTimeout(HALT_AGGREGATION_TIMEOUT + 1))
+        await expect(cdkValidiumContract.connect(admin).setForceBatchTimeout(HALT_AGGREGATION_TIMEOUT + 1))
             .to.be.revertedWith('InvalidRangeForceBatchTimeout');
 
-        await expect(polygonZkEVMContract.connect(admin).setForceBatchTimeout(FORCE_BATCH_TIMEOUT))
+        await expect(cdkValidiumContract.connect(admin).setForceBatchTimeout(FORCE_BATCH_TIMEOUT))
             .to.be.revertedWith('InvalidRangeForceBatchTimeout');
         await expect(
-            polygonZkEVMContract.connect(admin).setForceBatchTimeout(newForceBatchTimeout),
-        ).to.emit(polygonZkEVMContract, 'SetForceBatchTimeout').withArgs(newForceBatchTimeout);
-        expect(await polygonZkEVMContract.forceBatchTimeout()).to.be.equal(newForceBatchTimeout);
+            cdkValidiumContract.connect(admin).setForceBatchTimeout(newForceBatchTimeout),
+        ).to.emit(cdkValidiumContract, 'SetForceBatchTimeout').withArgs(newForceBatchTimeout);
+        expect(await cdkValidiumContract.forceBatchTimeout()).to.be.equal(newForceBatchTimeout);
 
         // Activate force batches
-        await expect(polygonZkEVMContract.activateForceBatches())
+        await expect(cdkValidiumContract.activateForceBatches())
             .to.be.revertedWith('OnlyAdmin');
 
         // Check force batches are unactive
-        await expect(polygonZkEVMContract.forceBatch('0x', 0))
+        await expect(cdkValidiumContract.forceBatch('0x', 0))
             .to.be.revertedWith('ForceBatchNotAllowed');
-        await expect(polygonZkEVMContract.sequenceForceBatches([]))
+        await expect(cdkValidiumContract.sequenceForceBatches([]))
             .to.be.revertedWith('ForceBatchNotAllowed');
 
         await expect(
-            polygonZkEVMContract.connect(admin).activateForceBatches(),
-        ).to.emit(polygonZkEVMContract, 'ActivateForceBatches');
-        await expect(polygonZkEVMContract.connect(admin).activateForceBatches())
+            cdkValidiumContract.connect(admin).activateForceBatches(),
+        ).to.emit(cdkValidiumContract, 'ActivateForceBatches');
+        await expect(cdkValidiumContract.connect(admin).activateForceBatches())
             .to.be.revertedWith('ForceBatchesAlreadyActive');
 
-        expect(await polygonZkEVMContract.isForcedBatchDisallowed()).to.be.equal(false);
+        expect(await cdkValidiumContract.isForcedBatchDisallowed()).to.be.equal(false);
 
         // Transfer admin role
 
         // First set pending Admin
-        expect(await polygonZkEVMContract.pendingAdmin()).to.be.equal(ethers.ZeroAddress);
-        await expect(polygonZkEVMContract.transferAdminRole(deployer.address))
+        expect(await cdkValidiumContract.pendingAdmin()).to.be.equal(ethers.constants.AddressZero);
+        await expect(cdkValidiumContract.transferAdminRole(deployer.address))
             .to.be.revertedWith('OnlyAdmin');
 
         await expect(
-            polygonZkEVMContract.connect(admin).transferAdminRole(deployer.address),
-        ).to.emit(polygonZkEVMContract, 'TransferAdminRole').withArgs(deployer.address);
-        expect(await polygonZkEVMContract.pendingAdmin()).to.be.equal(deployer.address);
+            cdkValidiumContract.connect(admin).transferAdminRole(deployer.address),
+        ).to.emit(cdkValidiumContract, 'TransferAdminRole').withArgs(deployer.address);
+        expect(await cdkValidiumContract.pendingAdmin()).to.be.equal(deployer.address);
 
         // Accept transfer admin
-        expect(await polygonZkEVMContract.admin()).to.be.equal(admin.address);
-        await expect(polygonZkEVMContract.connect(admin).acceptAdminRole())
+        expect(await cdkValidiumContract.admin()).to.be.equal(admin.address);
+        await expect(cdkValidiumContract.connect(admin).acceptAdminRole())
             .to.be.revertedWith('OnlyPendingAdmin');
 
         await expect(
-            polygonZkEVMContract.connect(deployer).acceptAdminRole(),
-        ).to.emit(polygonZkEVMContract, 'AcceptAdminRole').withArgs(deployer.address);
-        expect(await polygonZkEVMContract.admin()).to.be.equal(deployer.address);
+            cdkValidiumContract.connect(deployer).acceptAdminRole(),
+        ).to.emit(cdkValidiumContract, 'AcceptAdminRole').withArgs(deployer.address);
+        expect(await cdkValidiumContract.admin()).to.be.equal(deployer.address);
     });
 
     it('should check state roots inside prime', async () => {
@@ -378,32 +399,33 @@ describe('Polygon ZK-EVM', () => {
         ];
 
         for (let i = 0; i < validRoots.length; i++) {
-            expect(await polygonZkEVMContract.checkStateRootInsidePrime(validRoots[i])).to.be.equal(true);
+            expect(await cdkValidiumContract.checkStateRootInsidePrime(validRoots[i])).to.be.equal(true);
         }
 
         for (let i = 0; i < aliasInvalidRoots.length; i++) {
-            expect(await polygonZkEVMContract.checkStateRootInsidePrime(aliasInvalidRoots[i])).to.be.equal(false);
+            expect(await cdkValidiumContract.checkStateRootInsidePrime(aliasInvalidRoots[i])).to.be.equal(false);
         }
     });
 
     it('should sequence a batch as trusted sequencer', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.batchFee();
+        const transactionsHash = calculateBatchHashData(l2txData);
+        const maticAmount = await cdkValidiumContract.batchFee();
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: ethers.BigNumber.from(currentTimestamp),
             minForcedTimestamp: 0,
         };
 
         // revert because sender is not truested sequencer
-        await expect(polygonZkEVMContract.sequenceBatches([sequence], trustedSequencer.address))
+        await expect(cdkValidiumContract.sequenceBatches([sequence], trustedSequencer.address, []))
             .to.be.revertedWith('OnlyTrustedSequencer');
 
         // revert because tokens were not approved
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address))
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address, []))
             .to.be.revertedWith('ERC20: insufficient allowance');
 
         const initialOwnerBalance = await maticTokenContract.balanceOf(
@@ -412,23 +434,23 @@ describe('Polygon ZK-EVM', () => {
 
         // Approve tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastBatchSequenced = await polygonZkEVMContract.lastBatchSequenced();
+        const lastBatchSequenced = await cdkValidiumContract.lastBatchSequenced();
 
         // Test sequence batches errors
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([], trustedSequencer.address))
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([], trustedSequencer.address, []))
             .to.be.revertedWith('SequenceZeroBatches');
 
-        sequence.globalExitRoot = ethers.MaxUint256;
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address))
+        sequence.globalExitRoot = ethers.constants.MaxUint256;
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address, []))
             .to.be.revertedWith('GlobalExitRootNotExist');
-        sequence.globalExitRoot = ethers.HashZero;
+        sequence.globalExitRoot = ethers.constants.HashZero;
 
         // Sequence batch
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], deployer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], deployer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(lastBatchSequenced + 1);
 
         const sequencedTimestamp = (await ethers.provider.getBlock()).timestamp;
@@ -441,12 +463,12 @@ describe('Polygon ZK-EVM', () => {
         );
 
         // Check batch mapping
-        const sequencedBatchData = await polygonZkEVMContract.sequencedBatches(1);
+        const sequencedBatchData = await cdkValidiumContract.sequencedBatches(1);
         const batchAccInputHash = sequencedBatchData.accInputHash;
 
         const batchAccInputHashJs = calculateAccInputHash(
-            (await polygonZkEVMContract.sequencedBatches(0)).accInputHash,
-            calculateBatchHashData(sequence.transactions),
+            (await cdkValidiumContract.sequencedBatches(0)).accInputHash,
+            transactionsHash,
             sequence.globalExitRoot,
             sequence.timestamp,
             deployer.address,
@@ -458,20 +480,21 @@ describe('Polygon ZK-EVM', () => {
 
     it('sequenceBatches should sequence multiple batches', async () => {
         const l2txData = '0x1234';
-        const maticAmount = (await polygonZkEVMContract.batchFee()).mul(2);
+        const transactionsHash = calculateBatchHashData(l2txData);
+        const maticAmount = (await cdkValidiumContract.batchFee()).mul(2);
 
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: currentTimestamp,
             minForcedTimestamp: 0,
         };
 
         const sequence2 = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: currentTimestamp,
             minForcedTimestamp: 0,
         };
@@ -482,14 +505,14 @@ describe('Polygon ZK-EVM', () => {
 
         // Approve tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastBatchSequenced = await polygonZkEVMContract.lastBatchSequenced();
+        const lastBatchSequenced = await cdkValidiumContract.lastBatchSequenced();
 
         // Sequence batches
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(lastBatchSequenced + 2);
 
         const finalOwnerBalance = await maticTokenContract.balanceOf(
@@ -501,28 +524,28 @@ describe('Polygon ZK-EVM', () => {
         );
 
         // Check batch mapping
-        const sequencedBatchData = await polygonZkEVMContract.sequencedBatches(1);
+        const sequencedBatchData = await cdkValidiumContract.sequencedBatches(1);
         const batchAccInputHash = sequencedBatchData.accInputHash;
 
         // Only last batch is added to the mapping
-        expect(batchAccInputHash).to.be.equal(ethers.HashZero);
+        expect(batchAccInputHash).to.be.equal(ethers.constants.HashZero);
 
-        const sequencedBatchData2 = await polygonZkEVMContract.sequencedBatches(2);
+        const sequencedBatchData2 = await cdkValidiumContract.sequencedBatches(2);
         const batchAccInputHash2 = sequencedBatchData2.accInputHash;
 
-        // Calculate input Hahs for batch 1
+        // Calcultate input Hahs for batch 1
         let batchAccInputHashJs = calculateAccInputHash(
-            ethers.HashZero,
-            calculateBatchHashData(sequence.transactions),
+            ethers.constants.HashZero,
+            sequence.transactionsHash,
             sequence.globalExitRoot,
             sequence.timestamp,
             trustedSequencer.address,
         );
 
-        // Calculate input Hahs for batch 2
+        // Calcultate input Hahs for batch 2
         batchAccInputHashJs = calculateAccInputHash(
             batchAccInputHashJs,
-            calculateBatchHashData(sequence2.transactions),
+            sequence2.transactionsHash,
             sequence2.globalExitRoot,
             sequence2.timestamp,
             trustedSequencer.address,
@@ -532,8 +555,8 @@ describe('Polygon ZK-EVM', () => {
 
     it('force batches through smart contract', async () => {
         const l2txDataForceBatch = '0x123456';
-        const maticAmount = await polygonZkEVMContract.getForcedBatchFee();
-        const lastGlobalExitRoot = await polygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
+        const maticAmount = await cdkValidiumContract.getForcedBatchFee();
+        const lastGlobalExitRoot = await PolygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
 
         // deploy sender SC
         const sendDataFactory = await ethers.getContractFactory('SendData');
@@ -541,63 +564,65 @@ describe('Polygon ZK-EVM', () => {
         await sendDataContract.deployed();
 
         // transfer matic
-        await maticTokenContract.transfer(sendDataContract.address, ethers.parseEther('1000'));
+        await maticTokenContract.transfer(sendDataContract.address, ethers.utils.parseEther('1000'));
 
         // Approve matic
-        const approveTx = await maticTokenContract.populateTransaction.approve(polygonZkEVMContract.address, maticAmount);
+        const approveTx = await maticTokenContract.populateTransaction.approve(cdkValidiumContract.address, maticAmount);
         await sendDataContract.sendData(approveTx.to, approveTx.data);
 
         // Activate forced batches
         await expect(
-            polygonZkEVMContract.connect(admin).activateForceBatches(),
-        ).to.emit(polygonZkEVMContract, 'ActivateForceBatches');
+            cdkValidiumContract.connect(admin).activateForceBatches(),
+        ).to.emit(cdkValidiumContract, 'ActivateForceBatches');
 
         // Force batch
-        const lastForcedBatch = (await polygonZkEVMContract.lastForceBatch()) + 1;
+        const lastForcedBatch = (await cdkValidiumContract.lastForceBatch()) + 1;
 
-        const forceBatchTx = await polygonZkEVMContract.populateTransaction.forceBatch(l2txDataForceBatch, maticAmount);
+        const forceBatchTx = await cdkValidiumContract.populateTransaction.forceBatch(l2txDataForceBatch, maticAmount);
         await expect(sendDataContract.sendData(forceBatchTx.to, forceBatchTx.data))
-            .to.emit(polygonZkEVMContract, 'ForceBatch')
+            .to.emit(cdkValidiumContract, 'ForceBatch')
             .withArgs(lastForcedBatch, lastGlobalExitRoot, sendDataContract.address, l2txDataForceBatch);
     });
 
     it('sequenceBatches should sequence multiple batches and force batches', async () => {
         const l2txDataForceBatch = '0x123456';
-        const maticAmount = await polygonZkEVMContract.getForcedBatchFee();
-        const lastGlobalExitRoot = await polygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
+        const transactionsHashForceBatch = calculateBatchHashData(l2txDataForceBatch);
+        const maticAmount = await cdkValidiumContract.getForcedBatchFee();
+        const lastGlobalExitRoot = await PolygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
 
         await expect(
-            maticTokenContract.approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastForcedBatch = (await polygonZkEVMContract.lastForceBatch()) + 1;
+        const lastForcedBatch = (await cdkValidiumContract.lastForceBatch()) + 1;
 
         // Activate forced batches
         await expect(
-            polygonZkEVMContract.connect(admin).activateForceBatches(),
-        ).to.emit(polygonZkEVMContract, 'ActivateForceBatches');
+            cdkValidiumContract.connect(admin).activateForceBatches(),
+        ).to.emit(cdkValidiumContract, 'ActivateForceBatches');
 
         // Force batch
-        await expect(polygonZkEVMContract.forceBatch(l2txDataForceBatch, maticAmount))
-            .to.emit(polygonZkEVMContract, 'ForceBatch')
+        await expect(cdkValidiumContract.forceBatch(l2txDataForceBatch, maticAmount))
+            .to.emit(cdkValidiumContract, 'ForceBatch')
             .withArgs(lastForcedBatch, lastGlobalExitRoot, deployer.address, '0x');
 
         // sequence 2 batches
         const l2txData = '0x1234';
-        const maticAmountSequence = (await polygonZkEVMContract.batchFee()).mul(1);
+        const transactionsHash2 = calculateBatchHashData(l2txData);
+        const maticAmountSequence = (await cdkValidiumContract.batchFee()).mul(1);
 
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const sequence = {
-            transactions: l2txDataForceBatch,
+            transactionsHash: transactionsHashForceBatch,
             globalExitRoot: lastGlobalExitRoot,
             timestamp: currentTimestamp,
             minForcedTimestamp: currentTimestamp,
         };
 
         const sequence2 = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash: transactionsHash2,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: currentTimestamp,
             minForcedTimestamp: 0,
         };
@@ -608,35 +633,35 @@ describe('Polygon ZK-EVM', () => {
 
         // Approve tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmountSequence),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmountSequence),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastBatchSequenced = await polygonZkEVMContract.lastBatchSequenced();
+        const lastBatchSequenced = await cdkValidiumContract.lastBatchSequenced();
 
         // Assert that the timestamp requirements must accomplish with force batches too
         sequence.minForcedTimestamp += 1;
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address))
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address, []))
             .to.be.revertedWith('ForcedDataDoesNotMatch');
         sequence.minForcedTimestamp -= 1;
 
         sequence.timestamp -= 1;
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address))
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address, []))
             .to.be.revertedWith('SequencedTimestampBelowForcedTimestamp');
         sequence.timestamp += 1;
 
         sequence.timestamp = currentTimestamp + 10;
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address))
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address, []))
             .to.be.revertedWith('SequencedTimestampInvalid');
         sequence.timestamp = currentTimestamp;
 
         sequence2.timestamp -= 1;
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address))
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address, []))
             .to.be.revertedWith('SequencedTimestampInvalid');
         sequence2.timestamp += 1;
 
         // Sequence Bathces
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(Number(lastBatchSequenced) + 2);
 
         const sequencedTimestamp = (await ethers.provider.getBlock()).timestamp;
@@ -650,31 +675,31 @@ describe('Polygon ZK-EVM', () => {
         );
 
         // Check batch mapping
-        const batchAccInputHash = (await polygonZkEVMContract.sequencedBatches(1)).accInputHash;
+        const batchAccInputHash = (await cdkValidiumContract.sequencedBatches(1)).accInputHash;
         // Only last batch is added to the mapping
-        expect(batchAccInputHash).to.be.equal(ethers.HashZero);
+        expect(batchAccInputHash).to.be.equal(ethers.constants.HashZero);
 
         /*
          * Check batch mapping
-         * Calculate input Hahs for batch 1
+         * Calcultate input Hahs for batch 1
          */
         let batchAccInputHashJs = calculateAccInputHash(
-            ethers.HashZero,
-            calculateBatchHashData(sequence.transactions),
+            ethers.constants.HashZero,
+            sequence.transactionsHash,
             sequence.globalExitRoot,
             sequence.timestamp,
             trustedSequencer.address,
         );
 
-        // Calculate input Hahs for batch 2
+        // Calcultate input Hahs for batch 2
         batchAccInputHashJs = calculateAccInputHash(
             batchAccInputHashJs,
-            calculateBatchHashData(sequence2.transactions),
+            sequence2.transactionsHash,
             sequence2.globalExitRoot,
             sequence2.timestamp,
             trustedSequencer.address,
         );
-        const batchData2 = await polygonZkEVMContract.sequencedBatches(2);
+        const batchData2 = await cdkValidiumContract.sequencedBatches(2);
         expect(batchData2.accInputHash).to.be.equal(batchAccInputHashJs);
         expect(batchData2.sequencedTimestamp).to.be.equal(sequencedTimestamp);
         expect(batchData2.previousLastBatchSequenced).to.be.equal(0);
@@ -682,18 +707,19 @@ describe('Polygon ZK-EVM', () => {
 
     it('sequenceBatches should check the timestamp correctly', async () => {
         const l2txData = '0x';
-        const maticAmount = (await polygonZkEVMContract.batchFee()).mul(2);
+        const transactionsHash = calculateBatchHashData(l2txData);
+        const maticAmount = (await cdkValidiumContract.batchFee()).mul(2);
 
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: 0,
             minForcedTimestamp: 0,
         };
 
         const sequence2 = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: 0,
             minForcedTimestamp: 0,
         };
@@ -704,18 +730,18 @@ describe('Polygon ZK-EVM', () => {
 
         // Approve tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastBatchSequenced = await polygonZkEVMContract.lastBatchSequenced();
+        const lastBatchSequenced = await cdkValidiumContract.lastBatchSequenced();
 
         let currentTimestamp = (await ethers.provider.getBlock()).timestamp;
         await ethers.provider.send('evm_increaseTime', [1]); // evm_setNextBlockTimestamp
 
-        sequence.timestamp = currentTimestamp + 2; // bigger than current block timestamp
+        sequence.timestamp = currentTimestamp + 2; // bigger than current block tiemstamp
 
         // revert because timestamp is more than the current one
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address))
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address, []))
             .to.be.revertedWith('SequencedTimestampInvalid');
 
         currentTimestamp = (await ethers.provider.getBlock()).timestamp;
@@ -725,7 +751,7 @@ describe('Polygon ZK-EVM', () => {
         sequence2.timestamp = currentTimestamp - 1;
 
         // revert because the second sequence has less timestamp than the previous batch
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address))
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address, []))
             .to.be.revertedWith('SequencedTimestampInvalid');
 
         currentTimestamp = (await ethers.provider.getBlock()).timestamp;
@@ -735,8 +761,8 @@ describe('Polygon ZK-EVM', () => {
         sequence2.timestamp = currentTimestamp + 1;
 
         // Sequence Batches
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence, sequence2], trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(lastBatchSequenced + 2);
 
         const finalOwnerBalance = await maticTokenContract.balanceOf(
@@ -749,36 +775,36 @@ describe('Polygon ZK-EVM', () => {
 
     it('should force a batch of transactions', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.getForcedBatchFee();
-        const lastGlobalExitRoot = await polygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
+        const maticAmount = await cdkValidiumContract.getForcedBatchFee();
+        const lastGlobalExitRoot = await PolygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
 
-        expect(maticAmount.toString()).to.be.equal((await polygonZkEVMContract.getForcedBatchFee()).toString());
+        expect(maticAmount.toString()).to.be.equal((await cdkValidiumContract.getForcedBatchFee()).toString());
 
         // Activate force batches
         await expect(
-            polygonZkEVMContract.connect(admin).activateForceBatches(),
-        ).to.emit(polygonZkEVMContract, 'ActivateForceBatches');
+            cdkValidiumContract.connect(admin).activateForceBatches(),
+        ).to.emit(cdkValidiumContract, 'ActivateForceBatches');
 
         // revert because the maxMatic amount is less than the necessary to pay
-        await expect(polygonZkEVMContract.forceBatch(l2txData, maticAmount.sub(1)))
+        await expect(cdkValidiumContract.forceBatch(l2txData, maticAmount.sub(1)))
             .to.be.revertedWith('NotEnoughMaticAmount');
 
         // revert because tokens were not approved
-        await expect(polygonZkEVMContract.forceBatch(l2txData, maticAmount))
+        await expect(cdkValidiumContract.forceBatch(l2txData, maticAmount))
             .to.be.revertedWith('ERC20: insufficient allowance');
 
         const initialOwnerBalance = await maticTokenContract.balanceOf(
             await deployer.address,
         );
         await expect(
-            maticTokenContract.approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastForceBatch = await polygonZkEVMContract.lastForceBatch();
+        const lastForceBatch = await cdkValidiumContract.lastForceBatch();
 
         // Force batch
-        await expect(polygonZkEVMContract.forceBatch(l2txData, maticAmount))
-            .to.emit(polygonZkEVMContract, 'ForceBatch')
+        await expect(cdkValidiumContract.forceBatch(l2txData, maticAmount))
+            .to.emit(cdkValidiumContract, 'ForceBatch')
             .withArgs(lastForceBatch + 1, lastGlobalExitRoot, deployer.address, '0x');
 
         const finalOwnerBalance = await maticTokenContract.balanceOf(
@@ -789,10 +815,10 @@ describe('Polygon ZK-EVM', () => {
         );
 
         // Check force batches struct
-        const batchHash = await polygonZkEVMContract.forcedBatches(1);
+        const batchHash = await cdkValidiumContract.forcedBatches(1);
         const timestampForceBatch = (await ethers.provider.getBlock()).timestamp;
 
-        const batchHashJs = ethers.solidityPackedKeccak256(
+        const batchHashJs = ethers.utils.solidityKeccak256(
             ['bytes32', 'bytes32', 'uint64'],
             [
                 calculateBatchHashData(l2txData),
@@ -805,29 +831,29 @@ describe('Polygon ZK-EVM', () => {
 
     it('should sequence force batches using sequenceForceBatches', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.getForcedBatchFee();
-        const lastGlobalExitRoot = await polygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
+        const maticAmount = await cdkValidiumContract.getForcedBatchFee();
+        const lastGlobalExitRoot = await PolygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
 
         await expect(
-            maticTokenContract.approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
         // Activate force batches
         await expect(
-            polygonZkEVMContract.connect(admin).activateForceBatches(),
-        ).to.emit(polygonZkEVMContract, 'ActivateForceBatches');
+            cdkValidiumContract.connect(admin).activateForceBatches(),
+        ).to.emit(cdkValidiumContract, 'ActivateForceBatches');
 
-        const lastForcedBatch = (await polygonZkEVMContract.lastForceBatch()) + 1;
+        const lastForcedBatch = (await cdkValidiumContract.lastForceBatch()) + 1;
 
-        await expect(polygonZkEVMContract.forceBatch(l2txData, maticAmount))
-            .to.emit(polygonZkEVMContract, 'ForceBatch')
+        await expect(cdkValidiumContract.forceBatch(l2txData, maticAmount))
+            .to.emit(cdkValidiumContract, 'ForceBatch')
             .withArgs(lastForcedBatch, lastGlobalExitRoot, deployer.address, '0x');
 
         const timestampForceBatch = (await ethers.provider.getBlock()).timestamp;
 
-        const forceBatchHash = await polygonZkEVMContract.forcedBatches(1);
+        const forceBatchHash = await cdkValidiumContract.forcedBatches(1);
 
-        const batchHashJs = ethers.solidityPackedKeccak256(
+        const batchHashJs = ethers.utils.solidityKeccak256(
             ['bytes32', 'bytes32', 'uint64'],
             [
                 calculateBatchHashData(l2txData),
@@ -838,9 +864,9 @@ describe('Polygon ZK-EVM', () => {
         expect(batchHashJs).to.be.equal(forceBatchHash);
 
         // Check storage variables before call
-        expect(await polygonZkEVMContract.lastForceBatchSequenced()).to.be.equal(0);
-        expect(await polygonZkEVMContract.lastForceBatch()).to.be.equal(1);
-        expect(await polygonZkEVMContract.lastBatchSequenced()).to.be.equal(0);
+        expect(await cdkValidiumContract.lastForceBatchSequenced()).to.be.equal(0);
+        expect(await cdkValidiumContract.lastForceBatch()).to.be.equal(1);
+        expect(await cdkValidiumContract.lastBatchSequenced()).to.be.equal(0);
 
         const forceBatchStruct = {
             transactions: l2txData,
@@ -849,15 +875,15 @@ describe('Polygon ZK-EVM', () => {
         };
 
         // revert because the timeout is not expired
-        await expect(polygonZkEVMContract.sequenceForceBatches([]))
+        await expect(cdkValidiumContract.sequenceForceBatches([]))
             .to.be.revertedWith('SequenceZeroBatches');
 
         // revert because does not exist that many forced Batches
-        await expect(polygonZkEVMContract.sequenceForceBatches(Array(2).fill(forceBatchStruct)))
+        await expect(cdkValidiumContract.sequenceForceBatches(Array(2).fill(forceBatchStruct)))
             .to.be.revertedWith('ForceBatchesOverflow');
 
         // revert because the timeout is not expired
-        await expect(polygonZkEVMContract.sequenceForceBatches([forceBatchStruct]))
+        await expect(cdkValidiumContract.sequenceForceBatches([forceBatchStruct]))
             .to.be.revertedWith('ForceBatchTimeoutNotExpired');
 
         const forceBatchStructBad = {
@@ -867,17 +893,17 @@ describe('Polygon ZK-EVM', () => {
         };
 
         forceBatchStructBad.minForcedTimestamp += 1;
-        await expect(polygonZkEVMContract.sequenceForceBatches([forceBatchStructBad]))
+        await expect(cdkValidiumContract.sequenceForceBatches([forceBatchStructBad]))
             .to.be.revertedWith('ForcedDataDoesNotMatch');
         forceBatchStructBad.minForcedTimestamp -= 1;
 
-        forceBatchStructBad.globalExitRoot = ethers.HashZero;
-        await expect(polygonZkEVMContract.sequenceForceBatches([forceBatchStructBad]))
+        forceBatchStructBad.globalExitRoot = ethers.constants.HashZero;
+        await expect(cdkValidiumContract.sequenceForceBatches([forceBatchStructBad]))
             .to.be.revertedWith('ForcedDataDoesNotMatch');
         forceBatchStructBad.globalExitRoot = lastGlobalExitRoot;
 
         forceBatchStructBad.transactions = '0x1111';
-        await expect(polygonZkEVMContract.sequenceForceBatches([forceBatchStructBad]))
+        await expect(cdkValidiumContract.sequenceForceBatches([forceBatchStructBad]))
             .to.be.revertedWith('ForcedDataDoesNotMatch');
         forceBatchStructBad.transactions = l2txData;
 
@@ -885,21 +911,21 @@ describe('Polygon ZK-EVM', () => {
         await ethers.provider.send('evm_setNextBlockTimestamp', [timestampForceBatch + FORCE_BATCH_TIMEOUT]);
 
         // sequence force batch
-        await expect(polygonZkEVMContract.sequenceForceBatches([forceBatchStruct]))
-            .to.emit(polygonZkEVMContract, 'SequenceForceBatches')
+        await expect(cdkValidiumContract.sequenceForceBatches([forceBatchStruct]))
+            .to.emit(cdkValidiumContract, 'SequenceForceBatches')
             .withArgs(1);
 
         const timestampSequenceBatch = (await ethers.provider.getBlock()).timestamp;
 
-        expect(await polygonZkEVMContract.lastForceBatchSequenced()).to.be.equal(1);
-        expect(await polygonZkEVMContract.lastForceBatch()).to.be.equal(1);
-        expect(await polygonZkEVMContract.lastBatchSequenced()).to.be.equal(1);
+        expect(await cdkValidiumContract.lastForceBatchSequenced()).to.be.equal(1);
+        expect(await cdkValidiumContract.lastForceBatch()).to.be.equal(1);
+        expect(await cdkValidiumContract.lastBatchSequenced()).to.be.equal(1);
 
         // Check force batches struct
-        const batchAccInputHash = (await polygonZkEVMContract.sequencedBatches(1)).accInputHash;
+        const batchAccInputHash = (await cdkValidiumContract.sequencedBatches(1)).accInputHash;
 
         const batchAccInputHashJs = calculateAccInputHash(
-            ethers.HashZero,
+            ethers.constants.HashZero,
             calculateBatchHashData(l2txData),
             lastGlobalExitRoot,
             timestampSequenceBatch,
@@ -910,40 +936,41 @@ describe('Polygon ZK-EVM', () => {
 
     it('should verify a sequenced batch using verifyBatchesTrustedAggregator', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.batchFee();
+        const transactionsHash = calculateBatchHashData(l2txData);
+        const maticAmount = await cdkValidiumContract.batchFee();
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: currentTimestamp,
             minForcedTimestamp: 0,
         };
 
         // Approve tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastBatchSequenced = await polygonZkEVMContract.lastBatchSequenced();
+        const lastBatchSequenced = await cdkValidiumContract.lastBatchSequenced();
         // Sequence Batches
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(lastBatchSequenced + 1);
 
         // trustedAggregator forge the batch
         const pendingState = 0;
         const newLocalExitRoot = '0x0000000000000000000000000000000000000000000000000000000000000000';
         const newStateRoot = '0x0000000000000000000000000000000000000000000000000000000000000000';
-        const numBatch = (await polygonZkEVMContract.lastVerifiedBatch()) + 1;
-        const zkProofFFlonk = new Array(24).fill(ethers.HashZero);
+        const numBatch = (await cdkValidiumContract.lastVerifiedBatch()) + 1;
+        const zkProofFFlonk = new Array(24).fill(ethers.constants.HashZero);
 
         const initialAggregatorMatic = await maticTokenContract.balanceOf(
             trustedAggregator.address,
         );
 
         await expect(
-            polygonZkEVMContract.connect(deployer).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(deployer).verifyBatchesTrustedAggregator(
                 pendingState,
                 numBatch - 1,
                 numBatch - 1,
@@ -954,7 +981,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('OnlyTrustedAggregator');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 pendingState,
                 numBatch - 1,
                 numBatch - 1,
@@ -965,7 +992,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('FinalNumBatchBelowLastVerifiedBatch');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 pendingState,
                 numBatch - 1,
                 numBatch + 1,
@@ -977,7 +1004,7 @@ describe('Polygon ZK-EVM', () => {
 
         // Verify batch
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 pendingState,
                 numBatch - 1,
                 numBatch,
@@ -985,7 +1012,7 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatchesTrustedAggregator')
+        ).to.emit(cdkValidiumContract, 'VerifyBatchesTrustedAggregator')
             .withArgs(numBatch, newStateRoot, trustedAggregator.address);
 
         const finalAggregatorMatic = await maticTokenContract.balanceOf(
@@ -998,21 +1025,21 @@ describe('Polygon ZK-EVM', () => {
 
     it('should verify forced sequenced batch using verifyBatchesTrustedAggregator', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.getForcedBatchFee();
-        const lastGlobalExitRoot = await polygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
+        const maticAmount = await cdkValidiumContract.getForcedBatchFee();
+        const lastGlobalExitRoot = await PolygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
 
         await expect(
-            maticTokenContract.approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
         // Activate force batches
         await expect(
-            polygonZkEVMContract.connect(admin).activateForceBatches(),
-        ).to.emit(polygonZkEVMContract, 'ActivateForceBatches');
+            cdkValidiumContract.connect(admin).activateForceBatches(),
+        ).to.emit(cdkValidiumContract, 'ActivateForceBatches');
 
-        const lastForcedBatch = (await polygonZkEVMContract.lastForceBatch()) + 1;
-        await expect(polygonZkEVMContract.forceBatch(l2txData, maticAmount))
-            .to.emit(polygonZkEVMContract, 'ForceBatch')
+        const lastForcedBatch = (await cdkValidiumContract.lastForceBatch()) + 1;
+        await expect(cdkValidiumContract.forceBatch(l2txData, maticAmount))
+            .to.emit(cdkValidiumContract, 'ForceBatch')
             .withArgs(lastForcedBatch, lastGlobalExitRoot, deployer.address, '0x');
 
         const timestampForceBatch = (await ethers.provider.getBlock()).timestamp;
@@ -1026,16 +1053,16 @@ describe('Polygon ZK-EVM', () => {
         };
 
         // sequence force batch
-        await expect(polygonZkEVMContract.sequenceForceBatches([forceBatchStruct]))
-            .to.emit(polygonZkEVMContract, 'SequenceForceBatches')
+        await expect(cdkValidiumContract.sequenceForceBatches([forceBatchStruct]))
+            .to.emit(cdkValidiumContract, 'SequenceForceBatches')
             .withArgs(lastForcedBatch);
 
         // trustedAggregator forge the batch
         const pendingState = 0;
         const newLocalExitRoot = '0x0000000000000000000000000000000000000000000000000000000000000000';
         const newStateRoot = '0x0000000000000000000000000000000000000000000000000000000000000000';
-        const numBatch = (await polygonZkEVMContract.lastVerifiedBatch()) + 1;
-        const zkProofFFlonk = new Array(24).fill(ethers.HashZero);
+        const numBatch = (await cdkValidiumContract.lastVerifiedBatch()) + 1;
+        const zkProofFFlonk = new Array(24).fill(ethers.constants.HashZero);
 
         const initialAggregatorMatic = await maticTokenContract.balanceOf(
             trustedAggregator.address,
@@ -1043,7 +1070,7 @@ describe('Polygon ZK-EVM', () => {
 
         // Verify batch
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 pendingState,
                 numBatch - 1,
                 numBatch,
@@ -1051,10 +1078,10 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatch')
+        ).to.emit(cdkValidiumContract, 'VerifyBatch')
             .withArgs(numBatch, trustedAggregator.address)
             .to.emit(maticTokenContract, 'Transfer')
-            .withArgs(polygonZkEVMContract.address, trustedAggregator.address, maticAmount);
+            .withArgs(cdkValidiumContract.address, trustedAggregator.address, maticAmount);
 
         const finalAggregatorMatic = await maticTokenContract.balanceOf(
             trustedAggregator.address,
@@ -1067,34 +1094,35 @@ describe('Polygon ZK-EVM', () => {
 
     it('should match the computed SC input with the Js input', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.batchFee();
+        const transactionsHash = calculateBatchHashData(l2txData);
+        const maticAmount = await cdkValidiumContract.batchFee();
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: currentTimestamp,
             minForcedTimestamp: 0,
         };
 
         // Approve tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastBatchSequenced = await polygonZkEVMContract.lastBatchSequenced();
+        const lastBatchSequenced = await cdkValidiumContract.lastBatchSequenced();
 
         // Sequence
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(lastBatchSequenced + 1);
 
-        const sentBatchHash = (await polygonZkEVMContract.sequencedBatches(lastBatchSequenced + 1)).accInputHash;
-        const oldAccInputHash = (await polygonZkEVMContract.sequencedBatches(0)).accInputHash;
+        const sentBatchHash = (await cdkValidiumContract.sequencedBatches(lastBatchSequenced + 1)).accInputHash;
+        const oldAccInputHash = (await cdkValidiumContract.sequencedBatches(0)).accInputHash;
 
         const batchAccInputHashJs = calculateAccInputHash(
             oldAccInputHash,
-            calculateBatchHashData(sequence.transactions),
+            sequence.transactionsHash,
             sequence.globalExitRoot,
             sequence.timestamp,
             trustedSequencer.address,
@@ -1102,10 +1130,10 @@ describe('Polygon ZK-EVM', () => {
         expect(sentBatchHash).to.be.equal(batchAccInputHashJs);
 
         // Compute circuit input with the SC function
-        const currentStateRoot = await polygonZkEVMContract.batchNumToStateRoot(0);
+        const currentStateRoot = await cdkValidiumContract.batchNumToStateRoot(0);
         const newStateRoot = '0x0000000000000000000000000000000000000000000000000000000000001234';
         const newLocalExitRoot = '0x0000000000000000000000000000000000000000000000000000000000000456';
-        const numBatch = (await polygonZkEVMContract.lastVerifiedBatch()) + 1;
+        const numBatch = (await cdkValidiumContract.lastVerifiedBatch()) + 1;
 
         // Compute Js input
         const inputSnarkJS = await calculateSnarkInput(
@@ -1123,7 +1151,7 @@ describe('Polygon ZK-EVM', () => {
 
         // Compute Js input
         const pendingStateNum = 0;
-        const circuitInpuSnarkSC = await polygonZkEVMContract.getNextSnarkInput(
+        const circuitInpuSnarkSC = await cdkValidiumContract.getNextSnarkInput(
             pendingStateNum,
             numBatch - 1,
             numBatch,
@@ -1136,21 +1164,21 @@ describe('Polygon ZK-EVM', () => {
 
     it('should match the computed SC input with the Js input in force batches', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.getForcedBatchFee();
-        const lastGlobalExitRoot = await polygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
+        const maticAmount = await cdkValidiumContract.getForcedBatchFee();
+        const lastGlobalExitRoot = await PolygonZkEVMGlobalExitRoot.getLastGlobalExitRoot();
 
         await expect(
-            maticTokenContract.approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
         // Activate force batches
         await expect(
-            polygonZkEVMContract.connect(admin).activateForceBatches(),
-        ).to.emit(polygonZkEVMContract, 'ActivateForceBatches');
+            cdkValidiumContract.connect(admin).activateForceBatches(),
+        ).to.emit(cdkValidiumContract, 'ActivateForceBatches');
 
-        const lastForcedBatch = (await polygonZkEVMContract.lastForceBatch()).toNumber() + 1;
-        await expect(polygonZkEVMContract.forceBatch(l2txData, maticAmount))
-            .to.emit(polygonZkEVMContract, 'ForceBatch')
+        const lastForcedBatch = (await cdkValidiumContract.lastForceBatch()).toNumber() + 1;
+        await expect(cdkValidiumContract.forceBatch(l2txData, maticAmount))
+            .to.emit(cdkValidiumContract, 'ForceBatch')
             .withArgs(lastForcedBatch, lastGlobalExitRoot, deployer.address, '0x');
 
         const timestampForceBatch = (await ethers.provider.getBlock()).timestamp;
@@ -1165,13 +1193,13 @@ describe('Polygon ZK-EVM', () => {
         };
 
         // sequence force batch
-        await expect(polygonZkEVMContract.sequenceForceBatches([forceBatchStruct]))
-            .to.emit(polygonZkEVMContract, 'SequenceForceBatches')
+        await expect(cdkValidiumContract.sequenceForceBatches([forceBatchStruct]))
+            .to.emit(cdkValidiumContract, 'SequenceForceBatches')
             .withArgs(lastForcedBatch);
 
         const sequencedTimestmap = (await ethers.provider.getBlock()).timestamp;
-        const oldAccInputHash = (await polygonZkEVMContract.sequencedBatches(0)).accInputHash;
-        const batchAccInputHash = (await polygonZkEVMContract.sequencedBatches(1)).accInputHash;
+        const oldAccInputHash = (await cdkValidiumContract.sequencedBatches(0)).accInputHash;
+        const batchAccInputHash = (await cdkValidiumContract.sequencedBatches(1)).accInputHash;
 
         const batchAccInputHashJs = calculateAccInputHash(
             oldAccInputHash,
@@ -1183,10 +1211,10 @@ describe('Polygon ZK-EVM', () => {
         expect(batchAccInputHash).to.be.equal(batchAccInputHashJs);
 
         // Compute circuit input with the SC function
-        const currentStateRoot = await polygonZkEVMContract.batchNumToStateRoot(0);
+        const currentStateRoot = await cdkValidiumContract.batchNumToStateRoot(0);
         const newStateRoot = '0x0000000000000000000000000000000000000000000000000000000000001234';
         const newLocalExitRoot = '0x0000000000000000000000000000000000000000000000000000000000000456';
-        const numBatch = (await polygonZkEVMContract.lastVerifiedBatch()) + 1;
+        const numBatch = (await cdkValidiumContract.lastVerifiedBatch()) + 1;
 
         // Compute Js input
         const inputSnarkJS = await calculateSnarkInput(
@@ -1204,7 +1232,7 @@ describe('Polygon ZK-EVM', () => {
 
         // Compute Js input
         const pendingStateNum = 0;
-        const circuitInpuSnarkSC = await polygonZkEVMContract.getNextSnarkInput(
+        const circuitInpuSnarkSC = await cdkValidiumContract.getNextSnarkInput(
             pendingStateNum,
             numBatch - 1,
             numBatch,
@@ -1217,44 +1245,45 @@ describe('Polygon ZK-EVM', () => {
 
     it('should verify a sequenced batch using verifyBatches', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.batchFee();
+        const transactionsHash = calculateBatchHashData(l2txData);
+        const maticAmount = await cdkValidiumContract.batchFee();
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: currentTimestamp,
             minForcedTimestamp: 0,
         };
 
         // Approve tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastBatchSequenced = await polygonZkEVMContract.lastBatchSequenced();
+        const lastBatchSequenced = await cdkValidiumContract.lastBatchSequenced();
         // Sequence Batches
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(lastBatchSequenced + 1);
 
         // aggregator forge the batch
         const pendingState = 0;
         const newLocalExitRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
         const newStateRoot = '0x0000000000000000000000000000000000000000000000000000000000000002';
-        const numBatch = (await polygonZkEVMContract.lastVerifiedBatch()) + 1;
-        const zkProofFFlonk = new Array(24).fill(ethers.HashZero);
+        const numBatch = (await cdkValidiumContract.lastVerifiedBatch()) + 1;
+        const zkProofFFlonk = new Array(24).fill(ethers.constants.HashZero);
 
         const initialAggregatorMatic = await maticTokenContract.balanceOf(
             aggregator1.address,
         );
 
-        const sequencedBatchData = await polygonZkEVMContract.sequencedBatches(1);
+        const sequencedBatchData = await cdkValidiumContract.sequencedBatches(1);
         const { sequencedTimestamp } = sequencedBatchData;
-        const currentBatchFee = await polygonZkEVMContract.batchFee();
+        const currentBatchFee = await cdkValidiumContract.batchFee();
 
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 pendingState,
                 numBatch - 1,
                 numBatch,
@@ -1267,7 +1296,7 @@ describe('Polygon ZK-EVM', () => {
         await ethers.provider.send('evm_setNextBlockTimestamp', [sequencedTimestamp.toNumber() + trustedAggregatorTimeoutDefault - 1]);
 
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 pendingState,
                 numBatch - 1,
                 numBatch,
@@ -1278,7 +1307,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('TrustedAggregatorTimeoutNotExpired');
 
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 pendingState,
                 numBatch - 1,
                 numBatch + 1,
@@ -1289,7 +1318,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('NewAccInputHashDoesNotExist');
 
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 pendingState,
                 numBatch - 1,
                 numBatch + _MAX_VERIFY_BATCHES,
@@ -1300,7 +1329,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('ExceedMaxVerifyBatches');
         // Verify batch
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 pendingState,
                 numBatch - 1,
                 numBatch,
@@ -1308,7 +1337,7 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(numBatch, newStateRoot, aggregator1.address);
 
         const verifyTimestamp = (await ethers.provider.getBlock()).timestamp;
@@ -1322,66 +1351,67 @@ describe('Polygon ZK-EVM', () => {
 
         // Check pending state
         const lastPendingstate = 1;
-        expect(lastPendingstate).to.be.equal(await polygonZkEVMContract.lastPendingState());
+        expect(lastPendingstate).to.be.equal(await cdkValidiumContract.lastPendingState());
 
-        const pendingStateData = await polygonZkEVMContract.pendingStateTransitions(lastPendingstate);
+        const pendingStateData = await cdkValidiumContract.pendingStateTransitions(lastPendingstate);
         expect(verifyTimestamp).to.be.equal(pendingStateData.timestamp);
         expect(numBatch).to.be.equal(pendingStateData.lastVerifiedBatch);
         expect(newLocalExitRoot).to.be.equal(pendingStateData.exitRoot);
         expect(newStateRoot).to.be.equal(pendingStateData.stateRoot);
 
         // Try consolidate state
-        expect(0).to.be.equal(await polygonZkEVMContract.lastVerifiedBatch());
+        expect(0).to.be.equal(await cdkValidiumContract.lastVerifiedBatch());
 
         // Pending state can't be 0
         await expect(
-            polygonZkEVMContract.consolidatePendingState(0),
+            cdkValidiumContract.consolidatePendingState(0),
         ).to.be.revertedWith('PendingStateInvalid');
 
         // Pending state does not exist
         await expect(
-            polygonZkEVMContract.consolidatePendingState(2),
+            cdkValidiumContract.consolidatePendingState(2),
         ).to.be.revertedWith('PendingStateInvalid');
 
         // Not ready to be consolidated
         await expect(
-            polygonZkEVMContract.consolidatePendingState(lastPendingstate),
+            cdkValidiumContract.consolidatePendingState(lastPendingstate),
         ).to.be.revertedWith('PendingStateNotConsolidable');
 
         await ethers.provider.send('evm_setNextBlockTimestamp', [verifyTimestamp + pendingStateTimeoutDefault - 1]);
 
         await expect(
-            polygonZkEVMContract.consolidatePendingState(lastPendingstate),
+            cdkValidiumContract.consolidatePendingState(lastPendingstate),
         ).to.be.revertedWith('PendingStateNotConsolidable');
 
         await expect(
-            polygonZkEVMContract.consolidatePendingState(lastPendingstate),
-        ).to.emit(polygonZkEVMContract, 'ConsolidatePendingState')
+            cdkValidiumContract.consolidatePendingState(lastPendingstate),
+        ).to.emit(cdkValidiumContract, 'ConsolidatePendingState')
             .withArgs(numBatch, newStateRoot, lastPendingstate);
 
         // Pending state already consolidated
         await expect(
-            polygonZkEVMContract.consolidatePendingState(1),
+            cdkValidiumContract.consolidatePendingState(1),
         ).to.be.revertedWith('PendingStateInvalid');
 
         // Fee es divided because is was fast verified
-        const multiplierFee = await polygonZkEVMContract.multiplierBatchFee();
-        expect((currentBatchFee.mul(1000)).div(multiplierFee)).to.be.equal(await polygonZkEVMContract.batchFee());
+        const multiplierFee = await cdkValidiumContract.multiplierBatchFee();
+        expect((currentBatchFee.mul(1000)).div(multiplierFee)).to.be.equal(await cdkValidiumContract.batchFee());
 
         // Check pending state variables
-        expect(1).to.be.equal(await polygonZkEVMContract.lastVerifiedBatch());
-        expect(newStateRoot).to.be.equal(await polygonZkEVMContract.batchNumToStateRoot(1));
-        expect(1).to.be.equal(await polygonZkEVMContract.lastPendingStateConsolidated());
+        expect(1).to.be.equal(await cdkValidiumContract.lastVerifiedBatch());
+        expect(newStateRoot).to.be.equal(await cdkValidiumContract.batchNumToStateRoot(1));
+        expect(1).to.be.equal(await cdkValidiumContract.lastPendingStateConsolidated());
     });
 
     it('should test the pending state properly', async () => {
         const l2txData = '0x123456';
+        const transactionsHash = calculateBatchHashData(l2txData);
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const batchesForSequence = 5;
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: currentTimestamp,
             minForcedTimestamp: 0,
         };
@@ -1390,20 +1420,20 @@ describe('Polygon ZK-EVM', () => {
 
         // Approve lots of tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticTokenInitialBalance),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticTokenInitialBalance),
         ).to.emit(maticTokenContract, 'Approval');
 
         // Make 20 sequences of 5 batches, with 1 minut timestamp difference
         for (let i = 0; i < 20; i++) {
-            await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches(sequencesArray, trustedSequencer.address))
-                .to.emit(polygonZkEVMContract, 'SequenceBatches');
+            await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches(sequencesArray, trustedSequencer.address, []))
+                .to.emit(cdkValidiumContract, 'SequenceBatches');
         }
         await ethers.provider.send('evm_increaseTime', [60]);
 
         // Forge first sequence with verifyBAtches
         const newLocalExitRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
         const newStateRoot = '0x0000000000000000000000000000000000000000000000000000000000000002';
-        const zkProofFFlonk = new Array(24).fill(ethers.HashZero);
+        const zkProofFFlonk = new Array(24).fill(ethers.constants.HashZero);
 
         let currentPendingState = 0;
         let currentNumBatch = 0;
@@ -1411,7 +1441,7 @@ describe('Polygon ZK-EVM', () => {
 
         // Verify batch
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1419,16 +1449,16 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(newBatch, newStateRoot, aggregator1.address);
 
         let verifyTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         // Check pending state
         currentPendingState++;
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
 
-        let currentPendingStateData = await polygonZkEVMContract.pendingStateTransitions(currentPendingState);
+        let currentPendingStateData = await cdkValidiumContract.pendingStateTransitions(currentPendingState);
         expect(verifyTimestamp).to.be.equal(currentPendingStateData.timestamp);
         expect(newBatch).to.be.equal(currentPendingStateData.lastVerifiedBatch);
         expect(newLocalExitRoot).to.be.equal(currentPendingStateData.exitRoot);
@@ -1436,7 +1466,7 @@ describe('Polygon ZK-EVM', () => {
 
         // Try to verify Batches that does not go beyond the last pending state
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 0,
                 currentNumBatch,
                 newBatch,
@@ -1447,7 +1477,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('FinalNumBatchBelowLastVerifiedBatch');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 10,
                 currentNumBatch,
                 newBatch,
@@ -1458,7 +1488,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('PendingStateDoesNotExist');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1472,7 +1502,7 @@ describe('Polygon ZK-EVM', () => {
         newBatch += batchesForSequence;
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1480,21 +1510,21 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatchesTrustedAggregator')
+        ).to.emit(cdkValidiumContract, 'VerifyBatchesTrustedAggregator')
             .withArgs(newBatch, newStateRoot, trustedAggregator.address);
 
         // Check pending state is clear
         currentPendingState = 0;
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
-        expect(0).to.be.equal(await polygonZkEVMContract.lastPendingStateConsolidated());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
+        expect(0).to.be.equal(await cdkValidiumContract.lastPendingStateConsolidated());
 
         // Check consolidated state
         let currentVerifiedBatch = newBatch;
-        expect(currentVerifiedBatch).to.be.equal(await polygonZkEVMContract.lastVerifiedBatch());
-        expect(newStateRoot).to.be.equal(await polygonZkEVMContract.batchNumToStateRoot(currentVerifiedBatch));
+        expect(currentVerifiedBatch).to.be.equal(await cdkValidiumContract.lastVerifiedBatch());
+        expect(newStateRoot).to.be.equal(await cdkValidiumContract.batchNumToStateRoot(currentVerifiedBatch));
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 1,
                 currentNumBatch,
                 newBatch,
@@ -1505,9 +1535,9 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('PendingStateDoesNotExist');
 
         // Since this pending state was not consolidated, the currentNumBatch does not have stored root
-        expect(ethers.HashZero).to.be.equal(await polygonZkEVMContract.batchNumToStateRoot(currentNumBatch));
+        expect(ethers.constants.HashZero).to.be.equal(await cdkValidiumContract.batchNumToStateRoot(currentNumBatch));
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1518,7 +1548,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('OldStateRootDoesNotExist');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 currentPendingState,
                 0,
                 newBatch,
@@ -1532,7 +1562,7 @@ describe('Polygon ZK-EVM', () => {
         currentNumBatch = newBatch;
         newBatch += batchesForSequence;
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1540,15 +1570,15 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(newBatch, newStateRoot, aggregator1.address);
 
         // Check pending state
         verifyTimestamp = (await ethers.provider.getBlock()).timestamp;
         currentPendingState++;
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
 
-        currentPendingStateData = await polygonZkEVMContract.pendingStateTransitions(currentPendingState);
+        currentPendingStateData = await cdkValidiumContract.pendingStateTransitions(currentPendingState);
         expect(verifyTimestamp).to.be.equal(currentPendingStateData.timestamp);
         expect(newBatch).to.be.equal(currentPendingStateData.lastVerifiedBatch);
         expect(newLocalExitRoot).to.be.equal(currentPendingStateData.exitRoot);
@@ -1559,7 +1589,7 @@ describe('Polygon ZK-EVM', () => {
         newBatch += batchesForSequence;
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 0,
                 1,
                 newBatch,
@@ -1570,7 +1600,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('OldStateRootDoesNotExist');
 
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 0,
                 0,
                 newBatch,
@@ -1578,15 +1608,15 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(newBatch, newStateRoot, aggregator1.address);
 
         // Check pending state
         verifyTimestamp = (await ethers.provider.getBlock()).timestamp;
         currentPendingState++;
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
 
-        currentPendingStateData = await polygonZkEVMContract.pendingStateTransitions(currentPendingState);
+        currentPendingStateData = await cdkValidiumContract.pendingStateTransitions(currentPendingState);
         expect(verifyTimestamp).to.be.equal(currentPendingStateData.timestamp);
         expect(newBatch).to.be.equal(currentPendingStateData.lastVerifiedBatch);
         expect(newLocalExitRoot).to.be.equal(currentPendingStateData.exitRoot);
@@ -1598,7 +1628,7 @@ describe('Polygon ZK-EVM', () => {
 
         // Must specify pending state num while is not consolidated
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatchesTrustedAggregator(
                 0,
                 currentNumBatch - 5,
                 newBatch,
@@ -1609,7 +1639,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('OldStateRootDoesNotExist');
 
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 currentPendingState - 1,
                 currentNumBatch - 5,
                 newBatch,
@@ -1617,21 +1647,21 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(newBatch, newStateRoot, aggregator1.address);
 
         verifyTimestamp = (await ethers.provider.getBlock()).timestamp;
         currentPendingState++;
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
 
-        currentPendingStateData = await polygonZkEVMContract.pendingStateTransitions(currentPendingState);
+        currentPendingStateData = await cdkValidiumContract.pendingStateTransitions(currentPendingState);
         expect(verifyTimestamp).to.be.equal(currentPendingStateData.timestamp);
         expect(newBatch).to.be.equal(currentPendingStateData.lastVerifiedBatch);
         expect(newLocalExitRoot).to.be.equal(currentPendingStateData.exitRoot);
         expect(newStateRoot).to.be.equal(currentPendingStateData.stateRoot);
 
         // Consolidate using verifyBatches
-        const firstPendingState = await polygonZkEVMContract.pendingStateTransitions(1);
+        const firstPendingState = await cdkValidiumContract.pendingStateTransitions(1);
         await ethers.provider.send('evm_setNextBlockTimestamp', [firstPendingState.timestamp.toNumber() + pendingStateTimeoutDefault]);
 
         let currentPendingConsolidated = 0;
@@ -1639,7 +1669,7 @@ describe('Polygon ZK-EVM', () => {
         newBatch += batchesForSequence;
 
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1647,17 +1677,17 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(newBatch, newStateRoot, aggregator1.address)
-            .to.emit(polygonZkEVMContract, 'ConsolidatePendingState')
+            .to.emit(cdkValidiumContract, 'ConsolidatePendingState')
             .withArgs(firstPendingState.lastVerifiedBatch, newStateRoot, ++currentPendingConsolidated);
 
         verifyTimestamp = (await ethers.provider.getBlock()).timestamp;
         currentPendingState++;
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
-        expect(currentPendingConsolidated).to.be.equal(await polygonZkEVMContract.lastPendingStateConsolidated());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
+        expect(currentPendingConsolidated).to.be.equal(await cdkValidiumContract.lastPendingStateConsolidated());
 
-        currentPendingStateData = await polygonZkEVMContract.pendingStateTransitions(currentPendingState);
+        currentPendingStateData = await cdkValidiumContract.pendingStateTransitions(currentPendingState);
         expect(verifyTimestamp).to.be.equal(currentPendingStateData.timestamp);
         expect(newBatch).to.be.equal(currentPendingStateData.lastVerifiedBatch);
         expect(newLocalExitRoot).to.be.equal(currentPendingStateData.exitRoot);
@@ -1665,32 +1695,32 @@ describe('Polygon ZK-EVM', () => {
 
         // Check state consolidated
         currentVerifiedBatch += batchesForSequence;
-        expect(currentVerifiedBatch).to.be.equal(await polygonZkEVMContract.lastVerifiedBatch());
-        expect(newStateRoot).to.be.equal(await polygonZkEVMContract.batchNumToStateRoot(currentVerifiedBatch));
+        expect(currentVerifiedBatch).to.be.equal(await cdkValidiumContract.lastVerifiedBatch());
+        expect(newStateRoot).to.be.equal(await cdkValidiumContract.batchNumToStateRoot(currentVerifiedBatch));
 
         // Consolidate using sendBatches
-        const secondPendingState = await polygonZkEVMContract.pendingStateTransitions(2);
+        const secondPendingState = await cdkValidiumContract.pendingStateTransitions(2);
         await ethers.provider.send('evm_setNextBlockTimestamp', [secondPendingState.timestamp.toNumber() + pendingStateTimeoutDefault]);
 
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches(sequencesArray, trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
-            .to.emit(polygonZkEVMContract, 'ConsolidatePendingState')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches(sequencesArray, trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
+            .to.emit(cdkValidiumContract, 'ConsolidatePendingState')
             .withArgs(secondPendingState.lastVerifiedBatch, newStateRoot, ++currentPendingConsolidated);
 
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
-        expect(currentPendingConsolidated).to.be.equal(await polygonZkEVMContract.lastPendingStateConsolidated());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
+        expect(currentPendingConsolidated).to.be.equal(await cdkValidiumContract.lastPendingStateConsolidated());
 
         // Check state consolidated
         currentVerifiedBatch += batchesForSequence;
-        expect(currentVerifiedBatch).to.be.equal(await polygonZkEVMContract.lastVerifiedBatch());
-        expect(newStateRoot).to.be.equal(await polygonZkEVMContract.batchNumToStateRoot(currentVerifiedBatch));
+        expect(currentVerifiedBatch).to.be.equal(await cdkValidiumContract.lastVerifiedBatch());
+        expect(newStateRoot).to.be.equal(await cdkValidiumContract.batchNumToStateRoot(currentVerifiedBatch));
 
         // Put a lot of pending states and check that half of them are consoldiated
         for (let i = 0; i < 8; i++) {
             currentNumBatch = newBatch;
             newBatch += batchesForSequence;
             await expect(
-                polygonZkEVMContract.connect(aggregator1).verifyBatches(
+                cdkValidiumContract.connect(aggregator1).verifyBatches(
                     currentPendingState,
                     currentNumBatch,
                     newBatch,
@@ -1698,40 +1728,40 @@ describe('Polygon ZK-EVM', () => {
                     newStateRoot,
                     zkProofFFlonk,
                 ),
-            ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+            ).to.emit(cdkValidiumContract, 'VerifyBatches')
                 .withArgs(newBatch, newStateRoot, aggregator1.address);
 
             currentPendingState++;
         }
 
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
 
-        currentPendingConsolidated = await polygonZkEVMContract.lastPendingStateConsolidated();
-        const lastPendingState = await polygonZkEVMContract.pendingStateTransitions(currentPendingState);
+        currentPendingConsolidated = await cdkValidiumContract.lastPendingStateConsolidated();
+        const lastPendingState = await cdkValidiumContract.pendingStateTransitions(currentPendingState);
         await ethers.provider.send('evm_setNextBlockTimestamp', [lastPendingState.timestamp.toNumber() + pendingStateTimeoutDefault]);
 
         // call verify batches and check that half of them are consolidated
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
-        expect(currentPendingConsolidated).to.be.equal(await polygonZkEVMContract.lastPendingStateConsolidated());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
+        expect(currentPendingConsolidated).to.be.equal(await cdkValidiumContract.lastPendingStateConsolidated());
 
         const nextPendingConsolidated = Number(currentPendingConsolidated) + 1;
         const nextConsolidatedStateNum = nextPendingConsolidated + Number(Math.floor((currentPendingState - nextPendingConsolidated) / 2));
-        const nextConsolidatedState = await polygonZkEVMContract.pendingStateTransitions(nextConsolidatedStateNum);
+        const nextConsolidatedState = await cdkValidiumContract.pendingStateTransitions(nextConsolidatedStateNum);
 
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches(sequencesArray, trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
-            .to.emit(polygonZkEVMContract, 'ConsolidatePendingState')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches(sequencesArray, trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
+            .to.emit(cdkValidiumContract, 'ConsolidatePendingState')
             .withArgs(nextConsolidatedState.lastVerifiedBatch, newStateRoot, nextConsolidatedStateNum);
 
         // Put pendingState to 0 and check that the pending state is clear after verifyBatches
         await expect(
-            polygonZkEVMContract.connect(admin).setPendingStateTimeout(0),
-        ).to.emit(polygonZkEVMContract, 'SetPendingStateTimeout').withArgs(0);
+            cdkValidiumContract.connect(admin).setPendingStateTimeout(0),
+        ).to.emit(cdkValidiumContract, 'SetPendingStateTimeout').withArgs(0);
 
         currentNumBatch = newBatch;
         newBatch += batchesForSequence;
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1739,76 +1769,78 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(newBatch, newStateRoot, aggregator1.address);
 
         currentPendingState = 0;
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
-        expect(0).to.be.equal(await polygonZkEVMContract.lastPendingStateConsolidated());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
+        expect(0).to.be.equal(await cdkValidiumContract.lastPendingStateConsolidated());
 
         // Check consolidated state
         currentVerifiedBatch = newBatch;
-        expect(currentVerifiedBatch).to.be.equal(await polygonZkEVMContract.lastVerifiedBatch());
-        expect(newStateRoot).to.be.equal(await polygonZkEVMContract.batchNumToStateRoot(currentVerifiedBatch));
+        expect(currentVerifiedBatch).to.be.equal(await cdkValidiumContract.lastVerifiedBatch());
+        expect(newStateRoot).to.be.equal(await cdkValidiumContract.batchNumToStateRoot(currentVerifiedBatch));
     });
 
     it('Activate emergency state due halt timeout', async () => {
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.batchFee();
+        const transactionsHash = calculateBatchHashData(l2txData);
+        const maticAmount = await cdkValidiumContract.batchFee();
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: ethers.BigNumber.from(currentTimestamp),
             minForcedTimestamp: 0,
         };
 
         // Approve tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
         // Sequence batch
         const lastBatchSequenced = 1;
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(lastBatchSequenced);
 
-        const sequencedTimestmap = Number((await polygonZkEVMContract.sequencedBatches(1)).sequencedTimestamp);
+        const sequencedTimestmap = Number((await cdkValidiumContract.sequencedBatches(1)).sequencedTimestamp);
         const haltTimeout = HALT_AGGREGATION_TIMEOUT;
 
         // Try to activate the emergency state
 
         // Check batch is not sequenced
-        await expect(polygonZkEVMContract.connect(aggregator1).activateEmergencyState(2))
+        await expect(cdkValidiumContract.connect(aggregator1).activateEmergencyState(2))
             .to.be.revertedWith('BatchNotSequencedOrNotSequenceEnd');
 
         // Check batch is already verified
-        await polygonZkEVMContract.setVerifiedBatch(1);
-        await expect(polygonZkEVMContract.connect(aggregator1).activateEmergencyState(1))
+        await cdkValidiumContract.setVerifiedBatch(1);
+        await expect(cdkValidiumContract.connect(aggregator1).activateEmergencyState(1))
             .to.be.revertedWith('BatchAlreadyVerified');
-        await polygonZkEVMContract.setVerifiedBatch(0);
+        await cdkValidiumContract.setVerifiedBatch(0);
 
         // check timeout is not expired
-        await expect(polygonZkEVMContract.connect(aggregator1).activateEmergencyState(1))
+        await expect(cdkValidiumContract.connect(aggregator1).activateEmergencyState(1))
             .to.be.revertedWith('HaltTimeoutNotExpired');
 
         await ethers.provider.send('evm_setNextBlockTimestamp', [sequencedTimestmap + haltTimeout]);
 
-        // Successfully activate emergency state
-        await expect(polygonZkEVMContract.connect(aggregator1).activateEmergencyState(1))
-            .to.emit(polygonZkEVMContract, 'EmergencyStateActivated');
+        // Succesfully acitvate emergency state
+        await expect(cdkValidiumContract.connect(aggregator1).activateEmergencyState(1))
+            .to.emit(cdkValidiumContract, 'EmergencyStateActivated');
     });
 
     it('Test overridePendingState properly', async () => {
         const l2txData = '0x123456';
+        const transactionsHash = calculateBatchHashData(l2txData);
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const batchesForSequence = 5;
         const sequence = {
-            transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: currentTimestamp,
             minForcedTimestamp: 0,
         };
@@ -1817,20 +1849,20 @@ describe('Polygon ZK-EVM', () => {
 
         // Approve lots of tokens
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticTokenInitialBalance),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticTokenInitialBalance),
         ).to.emit(maticTokenContract, 'Approval');
 
         // Make 20 sequences of 5 batches, with 1 minut timestamp difference
         for (let i = 0; i < 20; i++) {
-            await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches(sequencesArray, trustedSequencer.address))
-                .to.emit(polygonZkEVMContract, 'SequenceBatches');
+            await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches(sequencesArray, trustedSequencer.address, []))
+                .to.emit(cdkValidiumContract, 'SequenceBatches');
         }
         await ethers.provider.send('evm_increaseTime', [60]);
 
         // Forge first sequence with verifyBAtches
         const newLocalExitRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
         const newStateRoot = '0x0000000000000000000000000000000000000000000000000000000000000002';
-        const zkProofFFlonk = new Array(24).fill(ethers.HashZero);
+        const zkProofFFlonk = new Array(24).fill(ethers.constants.HashZero);
 
         let currentPendingState = 0;
         let currentNumBatch = 0;
@@ -1838,7 +1870,7 @@ describe('Polygon ZK-EVM', () => {
 
         // Verify batch 2 batches
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1846,7 +1878,7 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(newBatch, newStateRoot, aggregator1.address);
 
         // verify second sequence
@@ -1854,7 +1886,7 @@ describe('Polygon ZK-EVM', () => {
         currentNumBatch = newBatch;
         newBatch += batchesForSequence;
         await expect(
-            polygonZkEVMContract.connect(aggregator1).verifyBatches(
+            cdkValidiumContract.connect(aggregator1).verifyBatches(
                 currentPendingState,
                 currentNumBatch,
                 newBatch,
@@ -1862,13 +1894,13 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(newBatch, newStateRoot, aggregator1.address);
 
         const finalPendingState = 2;
 
         await expect(
-            polygonZkEVMContract.connect(aggregator1).overridePendingState(
+            cdkValidiumContract.connect(aggregator1).overridePendingState(
                 currentPendingState,
                 finalPendingState,
                 currentNumBatch,
@@ -1880,7 +1912,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('OnlyTrustedAggregator');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 finalPendingState + 1,
                 finalPendingState + 2,
                 currentNumBatch,
@@ -1892,7 +1924,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('PendingStateDoesNotExist');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 currentPendingState,
                 finalPendingState,
                 currentNumBatch + 1,
@@ -1904,7 +1936,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('InitNumBatchDoesNotMatchPendingState');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 currentPendingState,
                 finalPendingState,
                 currentNumBatch,
@@ -1916,7 +1948,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('FinalNumBatchDoesNotMatchPendingState');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 0,
                 finalPendingState,
                 currentNumBatch,
@@ -1928,7 +1960,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('OldStateRootDoesNotExist');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 finalPendingState,
                 finalPendingState,
                 currentNumBatch + 5,
@@ -1940,7 +1972,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('FinalPendingStateNumInvalid');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 finalPendingState,
                 finalPendingState + 2,
                 currentNumBatch + 5,
@@ -1952,7 +1984,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('FinalPendingStateNumInvalid');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 currentPendingState,
                 finalPendingState,
                 currentNumBatch,
@@ -1964,7 +1996,7 @@ describe('Polygon ZK-EVM', () => {
         ).to.be.revertedWith('FinalNumBatchDoesNotMatchPendingState');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 currentPendingState,
                 finalPendingState,
                 currentNumBatch,
@@ -1977,7 +2009,7 @@ describe('Polygon ZK-EVM', () => {
 
         const newStateRoot2 = '0x0000000000000000000000000000000000000000000000000000000000000003';
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).overridePendingState(
+            cdkValidiumContract.connect(trustedAggregator).overridePendingState(
                 currentPendingState,
                 finalPendingState,
                 currentNumBatch,
@@ -1986,36 +2018,36 @@ describe('Polygon ZK-EVM', () => {
                 newStateRoot2,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'OverridePendingState').withArgs(newBatch, newStateRoot2, trustedAggregator.address);
+        ).to.emit(cdkValidiumContract, 'OverridePendingState').withArgs(newBatch, newStateRoot2, trustedAggregator.address);
 
         // check pending state is clear
         currentPendingState = 0;
-        expect(currentPendingState).to.be.equal(await polygonZkEVMContract.lastPendingState());
-        expect(0).to.be.equal(await polygonZkEVMContract.lastPendingStateConsolidated());
+        expect(currentPendingState).to.be.equal(await cdkValidiumContract.lastPendingState());
+        expect(0).to.be.equal(await cdkValidiumContract.lastPendingStateConsolidated());
 
         // check consolidated state
         const currentVerifiedBatch = newBatch;
-        expect(currentVerifiedBatch).to.be.equal(await polygonZkEVMContract.lastVerifiedBatch());
-        expect(newStateRoot2).to.be.equal(await polygonZkEVMContract.batchNumToStateRoot(currentVerifiedBatch));
+        expect(currentVerifiedBatch).to.be.equal(await cdkValidiumContract.lastVerifiedBatch());
+        expect(newStateRoot2).to.be.equal(await cdkValidiumContract.batchNumToStateRoot(currentVerifiedBatch));
     });
 
     it('Test batch fees properly', async () => {
-        const accInputData = ethers.HashZero;
-        const verifyBatchTimeTarget = Number(await polygonZkEVMContract.verifyBatchTimeTarget());
+        const accInputData = ethers.constants.HashZero;
+        const verifyBatchTimeTarget = Number(await cdkValidiumContract.verifyBatchTimeTarget());
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
-        const multiplierFee = ethers.BigNumber.from(await polygonZkEVMContract.multiplierBatchFee()); // 1002
+        const multiplierFee = ethers.BigNumber.from(await cdkValidiumContract.multiplierBatchFee()); // 1002
         const bingNumber1000 = ethers.BigNumber.from(1000);
 
         // Create sequenced to update the fee
-        await polygonZkEVMContract.setSequencedBatches(
+        await cdkValidiumContract.setSequencedBatches(
             50,
             accInputData,
             currentTimestamp + verifyBatchTimeTarget,
             0,
         ); // Edge case, will be below
 
-        await polygonZkEVMContract.setSequencedBatches(
+        await cdkValidiumContract.setSequencedBatches(
             100,
             accInputData,
             currentTimestamp + verifyBatchTimeTarget + 1,
@@ -2023,27 +2055,27 @@ describe('Polygon ZK-EVM', () => {
         ); // Edge case, will be above
 
         // Assert currentFee
-        let currentBatchFee = await polygonZkEVMContract.batchFee();
-        expect(currentBatchFee).to.be.equal(ethers.parseEther('0.1'));
+        let currentBatchFee = await cdkValidiumContract.batchFee();
+        expect(currentBatchFee).to.be.equal(ethers.utils.parseEther('0.1'));
 
         await ethers.provider.send('evm_setNextBlockTimestamp', [currentTimestamp + verifyBatchTimeTarget * 2]);
 
-        await polygonZkEVMContract.updateBatchFee(100);
+        await cdkValidiumContract.updateBatchFee(100);
 
         // Fee does not change since there are the same batches above than below
-        expect(await polygonZkEVMContract.batchFee()).to.be.equal(currentBatchFee);
+        expect(await cdkValidiumContract.batchFee()).to.be.equal(currentBatchFee);
 
         /*
          * Now all the batches will be above
          * since the MAX_BATCH_MULTIPLIER is 12 this will be the pow
          */
-        await polygonZkEVMContract.updateBatchFee(100);
+        await cdkValidiumContract.updateBatchFee(100);
 
         currentBatchFee = currentBatchFee.mul(multiplierFee.pow(MAX_BATCH_MULTIPLIER)).div(bingNumber1000.pow(MAX_BATCH_MULTIPLIER));
-        expect(currentBatchFee).to.be.equal(await polygonZkEVMContract.batchFee());
+        expect(currentBatchFee).to.be.equal(await cdkValidiumContract.batchFee());
 
         // Check the fee is now below
-        await polygonZkEVMContract.setSequencedBatches(50, accInputData, currentTimestamp + verifyBatchTimeTarget * 2, 0); // Below
+        await cdkValidiumContract.setSequencedBatches(50, accInputData, currentTimestamp + verifyBatchTimeTarget * 2, 0); // Below
         currentBatchFee = currentBatchFee.mul(bingNumber1000.pow(MAX_BATCH_MULTIPLIER)).div(multiplierFee.pow(MAX_BATCH_MULTIPLIER));
     });
 });

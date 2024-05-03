@@ -1,6 +1,10 @@
 const { expect } = require('chai');
 const { ethers, upgrades } = require('hardhat');
 
+const { contractUtils } = require('@0xpolygonhermez/zkevm-commonjs');
+
+const { calculateBatchHashData } = contractUtils;
+
 describe('Emergency mode test', () => {
     let deployer;
     let trustedAggregator;
@@ -8,21 +12,22 @@ describe('Emergency mode test', () => {
     let admin;
 
     let verifierContract;
-    let polygonZkEVMBridgeContract;
-    let polygonZkEVMContract;
+    let PolygonZkEVMBridgeContract;
+    let cdkValidiumContract;
+    let cdkDataCommitteeContract;
     let maticTokenContract;
-    let polygonZkEVMGlobalExitRoot;
+    let PolygonZkEVMGlobalExitRoot;
 
     const maticTokenName = 'Matic Token';
     const maticTokenSymbol = 'MATIC';
-    const maticTokenInitialBalance = ethers.parseEther('20000000');
+    const maticTokenInitialBalance = ethers.utils.parseEther('20000000');
 
     const genesisRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
 
     const networkIDMainnet = 0;
-    const urlSequencer = 'http://zkevm-json-rpc:8123';
+    const urlSequencer = 'http://cdk-validium-json-rpc:8123';
     const chainID = 1000;
-    const networkName = 'zkevm';
+    const networkName = 'cdk-validium';
     const version = '0.0.1';
     const pendingStateTimeoutDefault = 10;
     const trustedAggregatorTimeoutDefault = 10;
@@ -60,43 +65,56 @@ describe('Emergency mode test', () => {
         }
 
         const nonceProxyBridge = Number((await ethers.provider.getTransactionCount(deployer.address))) + (firstDeployment ? 3 : 2);
-        const nonceProxyZkevm = nonceProxyBridge + 2; // Always have to redeploy impl since the polygonZkEVMGlobalExitRoot address changes
+        const nonceProxyCommittee = nonceProxyBridge + 1;
+        // Always have to redeploy impl since the PolygonZkEVMGlobalExitRoot address changes
+        const nonceProxyCDKValidium = nonceProxyCommittee + 2;
 
-        const precalculateBridgeAddress = ethers.getContractAddress({ from: deployer.address, nonce: nonceProxyBridge });
-        const precalculateZkevmAddress = ethers.getContractAddress({ from: deployer.address, nonce: nonceProxyZkevm });
+        const precalculateBridgeAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyBridge });
+        const precalculateCommitteeAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyCommittee });
+        const precalculateCDKValidiumAddress = ethers.utils.getContractAddress({ from: deployer.address, nonce: nonceProxyCDKValidium });
         firstDeployment = false;
 
         const PolygonZkEVMGlobalExitRootFactory = await ethers.getContractFactory('PolygonZkEVMGlobalExitRoot');
-        polygonZkEVMGlobalExitRoot = await upgrades.deployProxy(PolygonZkEVMGlobalExitRootFactory, [], {
+        PolygonZkEVMGlobalExitRoot = await upgrades.deployProxy(PolygonZkEVMGlobalExitRootFactory, [], {
             initializer: false,
-            constructorArgs: [precalculateZkevmAddress, precalculateBridgeAddress],
+            constructorArgs: [precalculateCDKValidiumAddress, precalculateBridgeAddress],
             unsafeAllow: ['constructor', 'state-variable-immutable'],
         });
 
         // deploy PolygonZkEVMBridge
-        const polygonZkEVMBridgeFactory = await ethers.getContractFactory('PolygonZkEVMBridge');
-        polygonZkEVMBridgeContract = await upgrades.deployProxy(polygonZkEVMBridgeFactory, [], { initializer: false });
+        const PolygonZkEVMBridgeFactory = await ethers.getContractFactory('PolygonZkEVMBridge');
+        PolygonZkEVMBridgeContract = await upgrades.deployProxy(PolygonZkEVMBridgeFactory, [], { initializer: false });
 
-        // deploy PolygonZkEVMMock
-        const PolygonZkEVMFactory = await ethers.getContractFactory('PolygonZkEVMMock');
-        polygonZkEVMContract = await upgrades.deployProxy(PolygonZkEVMFactory, [], {
+        // deploy CDKDataCommittee
+        const cdkDataCommitteeFactory = await ethers.getContractFactory('CDKDataCommittee');
+        cdkDataCommitteeContract = await upgrades.deployProxy(
+            cdkDataCommitteeFactory,
+            [],
+            { initializer: false },
+        );
+
+        // deploy CDKValidiumMock
+        const CDKValidiumFactory = await ethers.getContractFactory('CDKValidiumMock');
+        cdkValidiumContract = await upgrades.deployProxy(CDKValidiumFactory, [], {
             initializer: false,
             constructorArgs: [
-                polygonZkEVMGlobalExitRoot.address,
+                PolygonZkEVMGlobalExitRoot.address,
                 maticTokenContract.address,
                 verifierContract.address,
-                polygonZkEVMBridgeContract.address,
+                PolygonZkEVMBridgeContract.address,
+                cdkDataCommitteeContract.address,
                 chainID,
                 0,
             ],
             unsafeAllow: ['constructor', 'state-variable-immutable'],
         });
 
-        expect(precalculateBridgeAddress).to.be.equal(polygonZkEVMBridgeContract.address);
-        expect(precalculateZkevmAddress).to.be.equal(polygonZkEVMContract.address);
+        expect(precalculateBridgeAddress).to.be.equal(PolygonZkEVMBridgeContract.address);
+        expect(precalculateCommitteeAddress).to.be.equal(cdkDataCommitteeContract.address);
+        expect(precalculateCDKValidiumAddress).to.be.equal(cdkValidiumContract.address);
 
-        await polygonZkEVMBridgeContract.initialize(networkIDMainnet, polygonZkEVMGlobalExitRoot.address, polygonZkEVMContract.address);
-        await polygonZkEVMContract.initialize(
+        await PolygonZkEVMBridgeContract.initialize(networkIDMainnet, PolygonZkEVMGlobalExitRoot.address, cdkValidiumContract.address);
+        await cdkValidiumContract.initialize(
             {
                 admin: admin.address,
                 trustedSequencer: trustedSequencer.address,
@@ -111,73 +129,88 @@ describe('Emergency mode test', () => {
         );
 
         // fund sequencer address with Matic tokens
-        await maticTokenContract.transfer(trustedSequencer.address, ethers.parseEther('1000'));
+        await maticTokenContract.transfer(trustedSequencer.address, ethers.utils.parseEther('1000'));
+
+        // init data committee
+        await cdkDataCommitteeContract.initialize();
+        const expectedHash = ethers.utils.solidityKeccak256(['bytes'], [[]]);
+        await expect(cdkDataCommitteeContract.connect(deployer)
+            .setupCommittee(0, [], []))
+            .to.emit(cdkDataCommitteeContract, 'CommitteeUpdated')
+            .withArgs(expectedHash);
 
         // Activate force batches
         await expect(
-            polygonZkEVMContract.connect(admin).activateForceBatches(),
-        ).to.emit(polygonZkEVMContract, 'ActivateForceBatches');
+            cdkValidiumContract.connect(admin).activateForceBatches(),
+        ).to.emit(cdkValidiumContract, 'ActivateForceBatches');
     });
 
     it('should activate emergency mode', async () => {
         // Check isEmergencyState
-        expect(await polygonZkEVMContract.isEmergencyState()).to.be.equal(false);
-        expect(await polygonZkEVMBridgeContract.isEmergencyState()).to.be.equal(false);
+        expect(await cdkValidiumContract.isEmergencyState()).to.be.equal(false);
+        expect(await PolygonZkEVMBridgeContract.isEmergencyState()).to.be.equal(false);
 
-        await expect(polygonZkEVMContract.connect(admin).deactivateEmergencyState())
+        await expect(cdkValidiumContract.connect(admin).deactivateEmergencyState())
             .to.be.revertedWith('OnlyEmergencyState');
 
         // Set isEmergencyState
-        await expect(polygonZkEVMContract.connect(admin).activateEmergencyState(1))
+        await expect(cdkValidiumContract.connect(admin).activateEmergencyState(1))
             .to.be.revertedWith('BatchNotSequencedOrNotSequenceEnd');
 
-        await expect(polygonZkEVMBridgeContract.connect(deployer).activateEmergencyState())
+        await expect(PolygonZkEVMBridgeContract.connect(deployer).activateEmergencyState())
             .to.be.revertedWith('OnlyPolygonZkEVM');
 
-        await expect(polygonZkEVMContract.activateEmergencyState(0))
-            .to.emit(polygonZkEVMContract, 'EmergencyStateActivated')
-            .to.emit(polygonZkEVMBridgeContract, 'EmergencyStateActivated');
+        await expect(cdkValidiumContract.activateEmergencyState(0))
+            .to.emit(cdkValidiumContract, 'EmergencyStateActivated')
+            .to.emit(PolygonZkEVMBridgeContract, 'EmergencyStateActivated');
 
-        expect(await polygonZkEVMContract.isEmergencyState()).to.be.equal(true);
-        expect(await polygonZkEVMBridgeContract.isEmergencyState()).to.be.equal(true);
+        expect(await cdkValidiumContract.isEmergencyState()).to.be.equal(true);
+        expect(await PolygonZkEVMBridgeContract.isEmergencyState()).to.be.equal(true);
 
         // Once in emergency state no sequenceBatches/forceBatches can be done
         const l2txData = '0x123456';
-        const maticAmount = await polygonZkEVMContract.batchFee();
+        const transactionsHash = calculateBatchHashData(l2txData);
+        const maticAmount = await cdkValidiumContract.batchFee();
         const currentTimestamp = (await ethers.provider.getBlock()).timestamp;
 
         const sequence = {
+            transactionsHash,
+            globalExitRoot: ethers.constants.HashZero,
+            timestamp: ethers.BigNumber.from(currentTimestamp),
+            minForcedTimestamp: 0,
+        };
+        const forcedSequence = {
             transactions: l2txData,
-            globalExitRoot: ethers.HashZero,
+            globalExitRoot: ethers.constants.HashZero,
             timestamp: ethers.BigNumber.from(currentTimestamp),
             minForcedTimestamp: 0,
         };
 
         // revert because emergency state
-        await expect(polygonZkEVMContract.sequenceBatches([sequence], deployer.address))
+        await expect(cdkValidiumContract.sequenceBatches([sequence], deployer.address, []))
             .to.be.revertedWith('OnlyNotEmergencyState');
 
         // revert because emergency state
-        await expect(polygonZkEVMContract.sequenceForceBatches([sequence]))
+        await expect(cdkValidiumContract.sequenceForceBatches([forcedSequence]))
             .to.be.revertedWith('OnlyNotEmergencyState');
 
         // revert because emergency state
-        await expect(polygonZkEVMContract.forceBatch(l2txData, maticAmount))
+        await expect(cdkValidiumContract.forceBatch(l2txData, maticAmount))
             .to.be.revertedWith('OnlyNotEmergencyState');
 
         // revert because emergency state
-        await expect(polygonZkEVMContract.consolidatePendingState(0))
+        await expect(cdkValidiumContract.consolidatePendingState(0))
             .to.be.revertedWith('OnlyNotEmergencyState');
 
         // trustedAggregator forge the batch
         const newLocalExitRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
         const newStateRoot = '0x0000000000000000000000000000000000000000000000000000000000000001';
-        const numBatch = (await polygonZkEVMContract.lastVerifiedBatch()).toNumber() + 1;
-        const zkProofFFlonk = new Array(24).fill(ethers.HashZero);
+        const numBatch = (await cdkValidiumContract.lastVerifiedBatch()).toNumber() + 1;
+        const zkProofFFlonk = new Array(24).fill(ethers.constants.HashZero);
         const pendingStateNum = 0;
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatches(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatches(
                 pendingStateNum,
                 numBatch - 1,
                 numBatch,
@@ -188,12 +221,12 @@ describe('Emergency mode test', () => {
         ).to.be.revertedWith('OnlyNotEmergencyState');
 
         // Check PolygonZkEVMBridge no PolygonZkEVMBridge is in emergency state also
-        const tokenAddress = ethers.ZeroAddress;
-        const amount = ethers.parseEther('10');
+        const tokenAddress = ethers.constants.AddressZero;
+        const amount = ethers.utils.parseEther('10');
         const destinationNetwork = 1;
         const destinationAddress = deployer.address;
 
-        await expect(polygonZkEVMBridgeContract.bridgeAsset(
+        await expect(PolygonZkEVMBridgeContract.bridgeAsset(
             destinationNetwork,
             destinationAddress,
             amount,
@@ -202,18 +235,18 @@ describe('Emergency mode test', () => {
             '0x',
         )).to.be.revertedWith('OnlyNotEmergencyState');
 
-        await expect(polygonZkEVMBridgeContract.bridgeMessage(
+        await expect(PolygonZkEVMBridgeContract.bridgeMessage(
             destinationNetwork,
             destinationAddress,
             true,
             '0x',
         )).to.be.revertedWith('OnlyNotEmergencyState');
 
-        const proof = Array(32).fill(ethers.HashZero);
+        const proof = Array(32).fill(ethers.constants.HashZero);
         const index = 0;
-        const root = ethers.HashZero;
+        const root = ethers.constants.HashZero;
 
-        await expect(polygonZkEVMBridgeContract.claimAsset(
+        await expect(PolygonZkEVMBridgeContract.claimAsset(
             proof,
             index,
             root,
@@ -226,7 +259,7 @@ describe('Emergency mode test', () => {
             '0x',
         )).to.be.revertedWith('OnlyNotEmergencyState');
 
-        await expect(polygonZkEVMBridgeContract.claimMessage(
+        await expect(PolygonZkEVMBridgeContract.claimMessage(
             proof,
             index,
             root,
@@ -240,35 +273,35 @@ describe('Emergency mode test', () => {
         )).to.be.revertedWith('OnlyNotEmergencyState');
 
         // Emergency council should deactivate emergency mode
-        await expect(polygonZkEVMContract.activateEmergencyState(0))
+        await expect(cdkValidiumContract.activateEmergencyState(0))
             .to.be.revertedWith('OnlyNotEmergencyState');
 
-        await expect(polygonZkEVMBridgeContract.connect(deployer).deactivateEmergencyState())
+        await expect(PolygonZkEVMBridgeContract.connect(deployer).deactivateEmergencyState())
             .to.be.revertedWith('OnlyPolygonZkEVM');
 
-        await expect(polygonZkEVMContract.deactivateEmergencyState())
+        await expect(cdkValidiumContract.deactivateEmergencyState())
             .to.be.revertedWith('OnlyAdmin');
 
-        await expect(polygonZkEVMContract.connect(admin).deactivateEmergencyState())
-            .to.emit(polygonZkEVMContract, 'EmergencyStateDeactivated')
-            .to.emit(polygonZkEVMBridgeContract, 'EmergencyStateDeactivated');
+        await expect(cdkValidiumContract.connect(admin).deactivateEmergencyState())
+            .to.emit(cdkValidiumContract, 'EmergencyStateDeactivated')
+            .to.emit(PolygonZkEVMBridgeContract, 'EmergencyStateDeactivated');
 
         // Check isEmergencyState
-        expect(await polygonZkEVMContract.isEmergencyState()).to.be.equal(false);
-        expect(await polygonZkEVMBridgeContract.isEmergencyState()).to.be.equal(false);
+        expect(await cdkValidiumContract.isEmergencyState()).to.be.equal(false);
+        expect(await PolygonZkEVMBridgeContract.isEmergencyState()).to.be.equal(false);
 
         /*
          * Continue normal flow
          * Approve tokens
          */
         await expect(
-            maticTokenContract.connect(trustedSequencer).approve(polygonZkEVMContract.address, maticAmount),
+            maticTokenContract.connect(trustedSequencer).approve(cdkValidiumContract.address, maticAmount),
         ).to.emit(maticTokenContract, 'Approval');
 
-        const lastBatchSequenced = await polygonZkEVMContract.lastBatchSequenced();
+        const lastBatchSequenced = await cdkValidiumContract.lastBatchSequenced();
         // Sequence Batches
-        await expect(polygonZkEVMContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address))
-            .to.emit(polygonZkEVMContract, 'SequenceBatches')
+        await expect(cdkValidiumContract.connect(trustedSequencer).sequenceBatches([sequence], trustedSequencer.address, []))
+            .to.emit(cdkValidiumContract, 'SequenceBatches')
             .withArgs(lastBatchSequenced + 1);
 
         // trustedAggregator forge the batch
@@ -279,7 +312,7 @@ describe('Emergency mode test', () => {
 
         // Verify batch
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).verifyBatches(
+            cdkValidiumContract.connect(trustedAggregator).verifyBatches(
                 pendingStateNum,
                 numBatch - 1,
                 numBatch,
@@ -287,7 +320,7 @@ describe('Emergency mode test', () => {
                 newStateRoot,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'VerifyBatches')
+        ).to.emit(cdkValidiumContract, 'VerifyBatches')
             .withArgs(numBatch, newStateRoot, trustedAggregator.address);
 
         const finalAggregatorMatic = await maticTokenContract.balanceOf(
@@ -301,7 +334,7 @@ describe('Emergency mode test', () => {
         const finalPendingStateNum = 1;
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).proveNonDeterministicPendingState(
+            cdkValidiumContract.connect(trustedAggregator).proveNonDeterministicPendingState(
                 pendingStateNum,
                 finalPendingStateNum,
                 numBatch - 1,
@@ -313,7 +346,7 @@ describe('Emergency mode test', () => {
         ).to.be.revertedWith('FinalNumBatchDoesNotMatchPendingState');
 
         await expect(
-            polygonZkEVMContract.connect(trustedAggregator).proveNonDeterministicPendingState(
+            cdkValidiumContract.connect(trustedAggregator).proveNonDeterministicPendingState(
                 pendingStateNum,
                 finalPendingStateNum,
                 numBatch - 1,
@@ -327,7 +360,7 @@ describe('Emergency mode test', () => {
         const newStateRootDistinct = '0x0000000000000000000000000000000000000000000000000000000000000002';
 
         await expect(
-            polygonZkEVMContract.proveNonDeterministicPendingState(
+            cdkValidiumContract.proveNonDeterministicPendingState(
                 pendingStateNum,
                 finalPendingStateNum,
                 numBatch - 1,
@@ -336,12 +369,12 @@ describe('Emergency mode test', () => {
                 newStateRootDistinct,
                 zkProofFFlonk,
             ),
-        ).to.emit(polygonZkEVMContract, 'ProveNonDeterministicPendingState').withArgs(newStateRoot, newStateRootDistinct)
-            .to.emit(polygonZkEVMContract, 'EmergencyStateActivated')
-            .to.emit(polygonZkEVMBridgeContract, 'EmergencyStateActivated');
+        ).to.emit(cdkValidiumContract, 'ProveNonDeterministicPendingState').withArgs(newStateRoot, newStateRootDistinct)
+            .to.emit(cdkValidiumContract, 'EmergencyStateActivated')
+            .to.emit(PolygonZkEVMBridgeContract, 'EmergencyStateActivated');
 
         // Check emergency state is active
-        expect(await polygonZkEVMContract.isEmergencyState()).to.be.equal(true);
-        expect(await polygonZkEVMBridgeContract.isEmergencyState()).to.be.equal(true);
+        expect(await cdkValidiumContract.isEmergencyState()).to.be.equal(true);
+        expect(await PolygonZkEVMBridgeContract.isEmergencyState()).to.be.equal(true);
     });
 });

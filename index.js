@@ -1,20 +1,17 @@
-const fs = require('fs')
-const path = require('path')
-
-const compileContracts = {}
-const pathToCompiledContracts = path.join(__dirname, './compiled-contracts')
-
-function exportCompileContracts(pathDir) {
-    fs.readdirSync(pathDir).forEach(file => {
-        const fullName = path.join(pathDir, file)
-        const pathInfo = path.parse(fullName);
-
-        if (pathInfo.ext === '.json') {
-            compileContracts[pathInfo.name] = require(fullName);
-        }
-    })
-}
-
-exportCompileContracts(pathToCompiledContracts);
-
-module.exports = compileContracts;
+module.exports.PolygonZkEVMBridge = require('./compiled-contracts/PolygonZkEVMBridge.json');
+module.exports.PolygonZkEVMGlobalExitRoot = require('./compiled-contracts/PolygonZkEVMGlobalExitRoot.json');
+module.exports.PolygonZkEVMGlobalExitRootL2 = require('./compiled-contracts/PolygonZkEVMGlobalExitRootL2.json');
+module.exports.CDKValidium = require('./compiled-contracts/CDKValidium.json');
+module.exports.TokenWrapped = require('./compiled-contracts/TokenWrapped.json');
+module.exports.FflonkVerifier = require('./compiled-contracts/FflonkVerifier.json');
+module.exports.PolygonZkEVMBridgeMock = require('./compiled-contracts/PolygonZkEVMBridgeMock.json');
+module.exports.ERC20PermitMock = require('./compiled-contracts/ERC20PermitMock.json');
+module.exports.PolygonZkEVMGlobalExitRootL2Mock = require('./compiled-contracts/PolygonZkEVMGlobalExitRootL2Mock.json');
+module.exports.PolygonZkEVMGlobalExitRootMock = require('./compiled-contracts/PolygonZkEVMGlobalExitRootMock.json');
+module.exports.CDKValidiumMock = require('./compiled-contracts/CDKValidiumMock.json');
+module.exports.VerifierRollupHelperMock = require('./compiled-contracts/VerifierRollupHelperMock.json');
+module.exports.PermitHelper = require('./src/permit-helper');
+module.exports.ProxyAdmin = require('./compiled-contracts/ProxyAdmin.json');
+module.exports.TransparentUpgradeableProxy = require('./compiled-contracts/TransparentUpgradeableProxy.json');
+module.exports.CDKValidiumDeployer = require('./compiled-contracts/CDKValidiumDeployer.json');
+module.exports.CDKValidiumTimelock = require('./compiled-contracts/CDKValidiumTimelock.json');

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.20;
 
-import "../PolygonZkEVM.sol";
+import "../CDKValidium.sol";
 
 /**
  * Contract responsible for managing the state and the updates of the L2 network
@@ -9,7 +9,7 @@ import "../PolygonZkEVM.sol";
  * The aggregators are forced to process and validate the sequencers transactions in the same order by using a verifier.
  * To enter and exit of the L2 network will be used a PolygonZkEVM Bridge smart contract
  */
-contract PolygonZkEVMMock is PolygonZkEVM {
+contract CDKValidiumMock is CDKValidium {
     /**
      * @param _globalExitRootManager Global exit root manager address
      * @param _matic MATIC token address
@@ -22,14 +22,16 @@ contract PolygonZkEVMMock is PolygonZkEVM {
         IERC20Upgradeable _matic,
         IVerifierRollup _rollupVerifier,
         IPolygonZkEVMBridge _bridgeAddress,
+        ICDKDataCommittee _dataComiteeAddress,
         uint64 _chainID,
         uint64 _forkID
     )
-        PolygonZkEVM(
+        CDKValidium(
             _globalExitRootManager,
             _matic,
             _rollupVerifier,
             _bridgeAddress,
+            _dataComiteeAddress,
             _chainID,
             _forkID
         )
@@ -86,7 +88,7 @@ contract PolygonZkEVMMock is PolygonZkEVM {
             // Already consolidated pending states can be used aswell
             require(
                 pendingStateNum <= lastPendingState,
-                "PolygonZkEVM::verifyBatches: pendingStateNum must be less or equal than lastPendingState"
+                "CDKValidium::verifyBatches: pendingStateNum must be less or equal than lastPendingState"
             );
 
             // Check choosen pending state
@@ -100,27 +102,27 @@ contract PolygonZkEVMMock is PolygonZkEVM {
             // Check initNumBatch matches the pending state
             require(
                 initNumBatch == currentPendingState.lastVerifiedBatch,
-                "PolygonZkEVM::verifyBatches: initNumBatch must match the pending state batch"
+                "CDKValidium::verifyBatches: initNumBatch must match the pending state batch"
             );
         } else {
             // Use consolidated state
             oldStateRoot = batchNumToStateRoot[initNumBatch];
             require(
                 oldStateRoot != bytes32(0),
-                "PolygonZkEVM::verifyBatches: initNumBatch state root does not exist"
+                "CDKValidium::verifyBatches: initNumBatch state root does not exist"
             );
 
             // Check initNumBatch is inside the range
             require(
                 initNumBatch <= currentLastVerifiedBatch,
-                "PolygonZkEVM::verifyBatches: initNumBatch must be less or equal than currentLastVerifiedBatch"
+                "CDKValidium::verifyBatches: initNumBatch must be less or equal than currentLastVerifiedBatch"
             );
         }
 
         // Check final batch
         require(
             finalNewBatch > currentLastVerifiedBatch,
-            "PolygonZkEVM::verifyBatches: finalNewBatch must be bigger than currentLastVerifiedBatch"
+            "CDKValidium::verifyBatches: finalNewBatch must be bigger than currentLastVerifiedBatch"
         );
 
         // Get snark bytes
@@ -227,7 +229,7 @@ contract PolygonZkEVMMock is PolygonZkEVM {
             // Already consolidated pending states can be used aswell
             require(
                 pendingStateNum <= lastPendingState,
-                "PolygonZkEVM::verifyBatches: pendingStateNum must be less or equal than lastPendingState"
+                "CDKValidium::verifyBatches: pendingStateNum must be less or equal than lastPendingState"
             );
 
             // Check choosen pending state
@@ -241,27 +243,27 @@ contract PolygonZkEVMMock is PolygonZkEVM {
             // Check initNumBatch matches the pending state
             require(
                 initNumBatch == currentPendingState.lastVerifiedBatch,
-                "PolygonZkEVM::verifyBatches: initNumBatch must match the pending state batch"
+                "CDKValidium::verifyBatches: initNumBatch must match the pending state batch"
             );
         } else {
             // Use consolidated state
             oldStateRoot = batchNumToStateRoot[initNumBatch];
             require(
                 oldStateRoot != bytes32(0),
-                "PolygonZkEVM::verifyBatches: initNumBatch state root does not exist"
+                "CDKValidium::verifyBatches: initNumBatch state root does not exist"
             );
 
             // Check initNumBatch is inside the range
             require(
                 initNumBatch <= currentLastVerifiedBatch,
-                "PolygonZkEVM::verifyBatches: initNumBatch must be less or equal than currentLastVerifiedBatch"
+                "CDKValidium::verifyBatches: initNumBatch must be less or equal than currentLastVerifiedBatch"
             );
         }
 
         // Check final batch
         require(
             finalNewBatch > currentLastVerifiedBatch,
-            "PolygonZkEVM::verifyBatches: finalNewBatch must be bigger than currentLastVerifiedBatch"
+            "CDKValidium::verifyBatches: finalNewBatch must be bigger than currentLastVerifiedBatch"
         );
 
         // Get snark bytes
@@ -279,7 +281,7 @@ contract PolygonZkEVMMock is PolygonZkEVM {
         // // Verify proof
         // require(
         //     rollupVerifier.verifyProof(proofA, proofB, proofC, [inputSnark]),
-        //     "PolygonZkEVM::verifyBatches: INVALID_PROOF"
+        //     "CDKValidium::verifyBatches: INVALID_PROOF"
         // );
 
         // // Get MATIC reward
